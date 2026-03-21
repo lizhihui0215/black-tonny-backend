@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.env.local
+.env.production
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+data/cache/*
+!data/cache/.gitkeep
+data/*.db
+frontend-dist/*
+!frontend-dist/.gitkeep
+mysql-data/

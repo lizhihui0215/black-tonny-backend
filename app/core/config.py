@@ -1,0 +1,56 @@
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _resolve_path(project_root: Path, value: str) -> Path:
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    return (project_root / path).resolve()
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=(".env", ".env.local"),
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    app_name: str = "Black Tonny Backend"
+    app_env: str = "development"
+    app_timezone: str = "Asia/Shanghai"
+    analysis_db_url: str = (
+        "mysql+pymysql://black_tonny:change_me@127.0.0.1:3306/black_tonny?charset=utf8mb4"
+    )
+    app_db_url: str = "mysql+pymysql://black_tonny:change_me@127.0.0.1:3306/black_tonny?charset=utf8mb4"
+    admin_api_token: str = Field(default="change-me", min_length=1)
+    payload_cache_dir: str = "data/cache"
+    sample_data_dir: str = "data/sample"
+    rebuild_cron: str = "30 7 * * *"
+
+    @property
+    def project_root(self) -> Path:
+        return Path(__file__).resolve().parents[2]
+
+    @property
+    def payload_cache_path(self) -> Path:
+        return _resolve_path(self.project_root, self.payload_cache_dir)
+
+    @property
+    def sample_data_path(self) -> Path:
+        return _resolve_path(self.project_root, self.sample_data_dir)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+def clear_settings_cache() -> None:
+    get_settings.cache_clear()

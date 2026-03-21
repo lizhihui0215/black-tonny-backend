@@ -1,0 +1,49 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: black-tonny-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_change_me
+      MYSQL_DATABASE: black_tonny_app
+      MYSQL_USER: black_tonny
+      MYSQL_PASSWORD: change_me
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - ../mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -proot_change_me"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: black-tonny-api
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - ../data:/app/data
+    expose:
+      - "8000"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: black-tonny-nginx
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../frontend-dist:/usr/share/nginx/html:ro
+
