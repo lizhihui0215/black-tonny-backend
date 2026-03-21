@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -23,10 +24,17 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.services.erp_research_service import (
     analyze_response_payload,
     build_exploration_cases,
+    find_latest_sample,
     get_exploration_strategy,
     get_exploration_target_titles,
     should_persist_capture,
     summarize_exploration_results,
+)
+from app.services.retail_detail_stats_service import (
+    RETAIL_DETAIL_CANONICAL_ENDPOINT,
+    build_sales_reconciliation_report,
+    fetch_retail_detail_pages,
+    serialize_retail_detail_pagination_result,
 )
 
 
@@ -448,6 +456,24 @@ def save_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), "utf-8")
 
 
+def load_json(path: Path) -> Any:
+    return json.loads(path.read_text("utf-8"))
+
+
+def find_report_spec_by_title(doc_path: Path, title: str) -> ReportSpec | None:
+    for spec in parse_report_specs(doc_path):
+        if spec.title == title:
+            return spec
+    return None
+
+
+def find_latest_report_payload(raw_root: Path, title: str) -> tuple[Path | None, Any | None]:
+    sample_path = find_latest_sample(raw_root, title)
+    if sample_path is None:
+        return None, None
+    return sample_path, load_json(sample_path)
+
+
 def try_create_capture_batch(source_name: str) -> str | None:
     try:
         from app.services.batch_service import create_capture_batch
@@ -553,6 +579,10 @@ def run_fetch_mode(
 ) -> int:
     run_dir = output_root / now_local().strftime("%Y%m%d-%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=True)
+    current_sales_list_payload: dict[str, Any] | list[Any] | None = None
+    current_sales_list_request_payload: dict[str, Any] | list[Any] | str | None = None
+    retail_detail_pagination_result = None
+    retail_detail_request_payload: dict[str, Any] | None = None
 
     meta: dict[str, Any] = {
         "mode": "fetch",
@@ -572,6 +602,59 @@ def run_fetch_mode(
         for index, spec in enumerate(reports, start=1):
             url = maybe_override_url(spec, api_base_url)
             auth_headers = build_report_auth_headers(url, access_token)
+            if spec.title == "零售明细统计":
+                retail_detail_request_payload = copy.deepcopy(spec.payload)
+                retail_detail_pagination_result = fetch_retail_detail_pages(
+                    spec.payload,
+                    lambda request_payload: perform_request(transport, url, request_payload, auth_headers),
+                )
+                pagination_summary = serialize_retail_detail_pagination_result(retail_detail_pagination_result)
+                report_entry = {
+                    "title": spec.title,
+                    "source_endpoint": RETAIL_DETAIL_CANONICAL_ENDPOINT,
+                    "url": url,
+                    "page_count": len(retail_detail_pagination_result.pages),
+                    "stop_reason": retail_detail_pagination_result.stop_reason,
+                    "pages": [],
+                    "filename": f"{slugify(spec.title)}.pagination-summary.json",
+                }
+                meta["reports"].append(report_entry)
+
+                for page in retail_detail_pagination_result.pages:
+                    filename = f"{slugify(spec.title)}.page{page.page_no:03d}.json"
+                    save_json(run_dir / filename, page.payload)
+                    report_entry["pages"].append(
+                        {
+                            "page_no": page.page_no,
+                            "status": page.status,
+                            "filename": filename,
+                            "row_count": page.analysis.get("row_count"),
+                            "row_signature": page.analysis.get("row_signature"),
+                            "stop_reason": page.stop_reason,
+                        }
+                    )
+                    if capture_batch_id:
+                        append_capture_payload_safe(
+                            capture_batch_id,
+                            source_endpoint=RETAIL_DETAIL_CANONICAL_ENDPOINT,
+                            payload=page.payload,
+                            request_params={
+                                "title": spec.title,
+                                "url": url,
+                                "payload": page.request_payload,
+                                "report_index": index,
+                                "page": page.page_no,
+                                "pagesize": page.page_size,
+                                "pagination_mode": "formal",
+                                "stop_reason": page.stop_reason,
+                            },
+                            page_no=page.page_no,
+                        )
+
+                save_json(run_dir / report_entry["filename"], pagination_summary)
+                print(f"[ok] {spec.title} -> {report_entry['filename']}")
+                continue
+
             status, payload = perform_request(transport, url, spec.payload, auth_headers)
             report_entry = {
                 "title": spec.title,
@@ -595,7 +678,43 @@ def run_fetch_mode(
                     },
                     page_no=index,
                 )
+            if spec.title == "销售清单":
+                current_sales_list_payload = payload
+                current_sales_list_request_payload = copy.deepcopy(spec.payload)
             print(f"[ok] {spec.title} -> {spec.filename}")
+
+        if retail_detail_pagination_result is not None:
+            reconciliation_sales_payload = current_sales_list_payload
+            reconciliation_sales_request_payload = current_sales_list_request_payload
+
+            if reconciliation_sales_payload is None:
+                _, reconciliation_sales_payload = find_latest_report_payload(output_root, "销售清单")
+                sales_spec = find_report_spec_by_title(REPORT_DOC_PATH, "销售清单")
+                reconciliation_sales_request_payload = sales_spec.payload if sales_spec else None
+
+            if reconciliation_sales_payload is not None and retail_detail_request_payload is not None:
+                reconciliation_report = build_sales_reconciliation_report(
+                    retail_pages=retail_detail_pagination_result,
+                    sales_list_payload=reconciliation_sales_payload,
+                    retail_request_payload=retail_detail_request_payload,
+                    sales_request_payload=(
+                        reconciliation_sales_request_payload
+                        if isinstance(reconciliation_sales_request_payload, dict)
+                        else None
+                    ),
+                )
+                reconciliation_filename = f"{slugify('零售明细统计')}.reconciliation.json"
+                save_json(run_dir / reconciliation_filename, reconciliation_report)
+                meta["reconciliation"] = {
+                    "title": "零售明细统计 vs 销售清单",
+                    "filename": reconciliation_filename,
+                }
+            else:
+                meta["reconciliation"] = {
+                    "title": "零售明细统计 vs 销售清单",
+                    "skipped": True,
+                    "reason": "missing_sales_list_payload",
+                }
 
         save_json(run_dir / "_meta.json", meta)
         if capture_batch_id:
