@@ -10,8 +10,9 @@ from sqlalchemy import delete, insert, select
 from app.core.config import get_settings
 from app.core.timezone import now_iso, now_local
 from app.db.base import payload_cache_index
-from app.db.engine import get_app_engine
+from app.db.engine import get_serving_engine
 from app.schemas.manifest import ManifestResponse
+from app.services.batch_service import upsert_analysis_batch
 
 
 PAGE_KEYS = ("dashboard", "details", "monthly", "quarterly", "relationship")
@@ -95,7 +96,7 @@ def get_payload_cache_summary() -> dict[str, Any]:
     cache_page_count = sum(1 for page_key in PAGE_KEYS if _page_path(settings.payload_cache_path, page_key).exists())
     cache_rows: list[dict[str, Any]] = []
     try:
-        engine = get_app_engine()
+        engine = get_serving_engine()
         with engine.begin() as connection:
             cache_rows = connection.execute(select(payload_cache_index)).mappings().all()
     except Exception:
@@ -124,7 +125,7 @@ def get_payload_cache_summary() -> dict[str, Any]:
 def _update_cache_index(manifest: dict[str, Any]) -> None:
     now = now_local()
     settings = get_settings()
-    engine = get_app_engine()
+    engine = get_serving_engine()
     with engine.begin() as connection:
         connection.execute(delete(payload_cache_index))
         for page_key in PAGE_KEYS:
@@ -160,6 +161,14 @@ def refresh_cache_from_sample() -> ManifestResponse:
             shutil.copy2(source_page, _page_path(settings.payload_cache_path, page_key))
     raw_manifest = _load_json(_manifest_path(settings.payload_cache_path))
     _update_cache_index(raw_manifest)
+    analysis_batch_id = str(raw_manifest.get("analysis_batch_id") or "").strip()
+    if analysis_batch_id:
+        upsert_analysis_batch(
+            analysis_batch_id,
+            batch_status="success",
+            source_endpoint="sample_cache_refresh",
+            transformed_at=now_local(),
+        )
     return build_api_manifest(raw_manifest)
 
 
@@ -176,4 +185,12 @@ def write_manifest_and_pages(manifest: dict[str, Any], pages: dict[str, dict[str
             continue
         _write_json(_page_path(settings.payload_cache_path, page_key), payload)
     _update_cache_index(manifest)
+    analysis_batch_id = str(manifest.get("analysis_batch_id") or "").strip()
+    if analysis_batch_id:
+        upsert_analysis_batch(
+            analysis_batch_id,
+            batch_status="success",
+            source_endpoint="payload_cache",
+            transformed_at=now_local(),
+        )
     return build_api_manifest(manifest)

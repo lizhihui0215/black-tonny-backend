@@ -7,7 +7,7 @@ from sqlalchemy import insert, select, update
 
 from app.core.timezone import now_local
 from app.db.base import cost_snapshots
-from app.db.engine import get_app_engine
+from app.db.engine import get_serving_engine
 from app.schemas.cost_snapshot import CostSnapshotResponse
 
 
@@ -26,7 +26,7 @@ def _row_to_snapshot(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_cost_snapshot_response() -> CostSnapshotResponse:
-    engine = get_app_engine()
+    engine = get_serving_engine()
     with engine.begin() as connection:
         rows = connection.execute(
             select(cost_snapshots).order_by(cost_snapshots.c.snapshot_datetime.desc(), cost_snapshots.c.updated_at.desc())
@@ -40,7 +40,7 @@ def save_cost_snapshot(snapshot: dict[str, Any]) -> CostSnapshotResponse:
     period = _snapshot_period(snapshot)
     now = now_local()
     payload_json = json.dumps(snapshot, ensure_ascii=False)
-    engine = get_app_engine()
+    engine = get_serving_engine()
     with engine.begin() as connection:
         existing = connection.execute(
             select(cost_snapshots.c.id).where(cost_snapshots.c.snapshot_period == period)
@@ -68,4 +68,3 @@ def save_cost_snapshot(snapshot: dict[str, Any]) -> CostSnapshotResponse:
                 )
             )
     return get_cost_snapshot_response()
-

@@ -7,14 +7,14 @@ from sqlalchemy import insert, select, update
 
 from app.core.timezone import now_local
 from app.db.base import job_runs, job_steps
-from app.db.engine import get_app_engine
+from app.db.engine import get_serving_engine
 from app.schemas.jobs import JobStatusResponse, JobStepResponse, RebuildJobRequest
 
 
 def create_rebuild_job(payload: RebuildJobRequest, requested_by: str = "api") -> JobStatusResponse:
     job_id = uuid4().hex
     now = now_local()
-    engine = get_app_engine()
+    engine = get_serving_engine()
     with engine.begin() as connection:
         connection.execute(
             insert(job_runs).values(
@@ -46,7 +46,7 @@ def create_rebuild_job(payload: RebuildJobRequest, requested_by: str = "api") ->
 
 
 def add_job_step(job_id: str, title: str, status: str, detail: str) -> None:
-    engine = get_app_engine()
+    engine = get_serving_engine()
     with engine.begin() as connection:
         connection.execute(
             insert(job_steps).values(
@@ -77,13 +77,13 @@ def update_job(
         values["started_at"] = now_local()
     if finished:
         values["finished_at"] = now_local()
-    engine = get_app_engine()
+    engine = get_serving_engine()
     with engine.begin() as connection:
         connection.execute(update(job_runs).where(job_runs.c.job_id == job_id).values(**values))
 
 
 def get_job(job_id: str) -> JobStatusResponse:
-    engine = get_app_engine()
+    engine = get_serving_engine()
     with engine.begin() as connection:
         job_row = connection.execute(
             select(job_runs).where(job_runs.c.job_id == job_id)
@@ -120,7 +120,7 @@ def get_job(job_id: str) -> JobStatusResponse:
 
 
 def get_latest_job() -> Optional[JobStatusResponse]:
-    engine = get_app_engine()
+    engine = get_serving_engine()
     with engine.begin() as connection:
         row = connection.execute(
             select(job_runs.c.job_id).order_by(job_runs.c.created_at.desc()).limit(1)

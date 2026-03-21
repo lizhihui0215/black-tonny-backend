@@ -25,10 +25,10 @@ class Settings(BaseSettings):
     app_name: str = "Black Tonny Backend"
     app_env: str = "development"
     app_timezone: str = "Asia/Shanghai"
-    analysis_db_url: str = (
-        "mysql+pymysql://black_tonny:change_me@127.0.0.1:3306/black_tonny?charset=utf8mb4"
-    )
-    app_db_url: str = "mysql+pymysql://black_tonny:change_me@127.0.0.1:3306/black_tonny?charset=utf8mb4"
+    capture_db_url: str | None = None
+    serving_db_url: str | None = None
+    analysis_db_url: str | None = None
+    app_db_url: str | None = None
     admin_api_token: str = Field(default="change-me", min_length=1)
     payload_cache_dir: str = "data/cache"
     sample_data_dir: str = "data/sample"
@@ -45,6 +45,18 @@ class Settings(BaseSettings):
     @property
     def sample_data_path(self) -> Path:
         return _resolve_path(self.project_root, self.sample_data_dir)
+
+    @property
+    def capture_database_url(self) -> str:
+        return self.capture_db_url or self.analysis_db_url or (
+            "mysql+pymysql://black_tonny:change_me@127.0.0.1:3306/black_tonny_capture?charset=utf8mb4"
+        )
+
+    @property
+    def serving_database_url(self) -> str:
+        return self.serving_db_url or self.app_db_url or (
+            "mysql+pymysql://black_tonny:change_me@127.0.0.1:3306/black_tonny_serving?charset=utf8mb4"
+        )
 
 
 @lru_cache

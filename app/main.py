@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
-from app.db.engine import init_app_database
+from app.db.engine import init_databases
 from app.services.homepage_service import render_homepage
 from app.services.payload_service import ensure_payload_directories
 from app.services.status_service import get_status
@@ -18,7 +18,7 @@ from app.services.status_service import get_status
 async def lifespan(_: FastAPI):
     configure_logging()
     ensure_payload_directories()
-    init_app_database()
+    init_databases()
     yield
 
 

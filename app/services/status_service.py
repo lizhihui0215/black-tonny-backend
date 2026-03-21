@@ -12,8 +12,20 @@ from sqlalchemy import func, select, text
 
 from app.core.config import get_settings
 from app.core.timezone import now_iso
-from app.db.base import cost_snapshots, job_runs, job_steps, payload_cache_index
-from app.db.engine import get_app_engine
+from app.db.base import (
+    analysis_batches,
+    capture_batches,
+    capture_endpoint_payloads,
+    cost_snapshots,
+    inventory_current,
+    inventory_daily_snapshot,
+    job_runs,
+    job_steps,
+    payload_cache_index,
+    sales_order_items,
+    sales_orders,
+)
+from app.db.engine import get_capture_engine, get_serving_engine
 from app.schemas.manifest import ManifestResponse
 from app.services import job_service, payload_service
 
@@ -59,40 +71,63 @@ def _build_system_summary(project_root: str) -> dict[str, object]:
     }
 
 
-def _build_database_summary() -> dict[str, object]:
-    engine = get_app_engine()
+def _build_single_database_summary(engine, table_map: dict[str, object]) -> dict[str, object]:
     summary: dict[str, object] = {
         "connected": False,
         "database_name": engine.url.database,
         "dialect": engine.dialect.name,
         "driver": engine.dialect.driver,
-        "table_counts": {
-            "job_runs": 0,
-            "job_steps": 0,
-            "cost_snapshots": 0,
-            "payload_cache_index": 0,
-        },
-        "table_counts_text": "0 / 0 / 0 / 0",
+        "table_counts": {name: 0 for name in table_map},
+        "table_counts_text": " / ".join("0" for _ in table_map),
     }
 
     try:
         with engine.begin() as connection:
             connection.execute(text("SELECT 1"))
             counts = {
-                "job_runs": int(connection.execute(select(func.count()).select_from(job_runs)).scalar_one()),
-                "job_steps": int(connection.execute(select(func.count()).select_from(job_steps)).scalar_one()),
-                "cost_snapshots": int(connection.execute(select(func.count()).select_from(cost_snapshots)).scalar_one()),
-                "payload_cache_index": int(
-                    connection.execute(select(func.count()).select_from(payload_cache_index)).scalar_one()
-                ),
+                name: int(connection.execute(select(func.count()).select_from(table)).scalar_one())
+                for name, table in table_map.items()
             }
         summary["connected"] = True
         summary["table_counts"] = counts
-        summary["table_counts_text"] = " / ".join(str(counts[key]) for key in ("job_runs", "job_steps", "cost_snapshots", "payload_cache_index"))
+        summary["table_counts_text"] = " / ".join(str(counts[key]) for key in table_map)
     except Exception as error:  # noqa: BLE001
         summary["error"] = str(error)
 
     return summary
+
+
+def _build_database_summary() -> dict[str, object]:
+    serving_summary = _build_single_database_summary(
+        get_serving_engine(),
+        {
+            "job_runs": job_runs,
+            "job_steps": job_steps,
+            "cost_snapshots": cost_snapshots,
+            "payload_cache_index": payload_cache_index,
+            "analysis_batches": analysis_batches,
+            "sales_orders": sales_orders,
+            "sales_order_items": sales_order_items,
+            "inventory_current": inventory_current,
+            "inventory_daily_snapshot": inventory_daily_snapshot,
+        },
+    )
+    capture_summary = _build_single_database_summary(
+        get_capture_engine(),
+        {
+            "capture_batches": capture_batches,
+            "capture_endpoint_payloads": capture_endpoint_payloads,
+        },
+    )
+    return {
+        "connected": bool(serving_summary.get("connected")) and bool(capture_summary.get("connected")),
+        "table_counts_text": (
+            f"serving[{serving_summary.get('table_counts_text')}] | "
+            f"capture[{capture_summary.get('table_counts_text')}]"
+        ),
+        "serving": serving_summary,
+        "capture": capture_summary,
+    }
 
 
 def _build_components(
@@ -100,20 +135,36 @@ def _build_components(
     cache_summary: dict[str, object],
     latest_job: dict[str, object] | None,
 ) -> dict[str, dict[str, str]]:
-    db_connected = bool(database_summary.get("connected"))
-    db_dialect = str(database_summary.get("dialect") or "")
+    serving_summary = database_summary.get("serving") or {}
+    capture_summary = database_summary.get("capture") or {}
+    serving_connected = bool(serving_summary.get("connected"))
+    capture_connected = bool(capture_summary.get("connected"))
+    serving_dialect = str(serving_summary.get("dialect") or "")
+    capture_dialect = str(capture_summary.get("dialect") or "")
     source_mode = str(cache_summary.get("source_mode") or "unknown")
     page_count = int(cache_summary.get("page_count") or 0)
     expected_page_count = int(cache_summary.get("expected_page_count") or 0)
 
-    mysql_status = "operational" if db_connected and db_dialect == "mysql" else "warning" if db_connected else "offline"
-    mysql_detail = (
-        f"已连接 {database_summary.get('database_name') or 'unknown'}"
-        if mysql_status == "operational"
-        else f"当前数据库为 {db_dialect or 'unknown'}，适合本地测试"
-        if db_connected
-        else "数据库连接不可用"
+    both_mysql = serving_dialect == "mysql" and capture_dialect == "mysql"
+    mysql_status = (
+        "operational"
+        if serving_connected and capture_connected and both_mysql
+        else "warning"
+        if serving_connected or capture_connected
+        else "offline"
     )
+    if serving_connected and capture_connected:
+        mysql_detail = (
+            f"Serving={serving_summary.get('database_name') or 'unknown'} / "
+            f"Capture={capture_summary.get('database_name') or 'unknown'}"
+        )
+    elif serving_connected or capture_connected:
+        mysql_detail = (
+            f"Serving={serving_summary.get('database_name') or 'offline'} / "
+            f"Capture={capture_summary.get('database_name') or 'offline'}"
+        )
+    else:
+        mysql_detail = "Serving 与 Capture 数据库都不可用"
 
     if source_mode == "cache" and page_count >= expected_page_count > 0:
         cache_status = "operational"
@@ -181,6 +232,7 @@ def _build_quick_links() -> list[dict[str, str]]:
         {"label": "状态总览", "path": "/api/status", "description": "服务、数据库、缓存与任务摘要"},
         {"label": "页面清单", "path": "/api/manifest", "description": "前端页面入口清单"},
         {"label": "经营总览 Payload", "path": "/api/pages/dashboard", "description": "直接查看 dashboard JSON"},
+        {"label": "顶部 Summary", "path": "/api/dashboard/summary?preset=last7days", "description": "查看 Dashboard 顶部 8 张卡片接口"},
     ]
 
 
