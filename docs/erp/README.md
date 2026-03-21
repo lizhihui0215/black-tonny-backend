@@ -204,3 +204,28 @@ python3 scripts/analyze_yeusoft_report_samples.py
 - capture 主链接口优先级排序
 
 的基础输入。
+
+当前还新增了一条探索模式，直接复用主抓取脚本：
+
+```bash
+python3 scripts/fetch_yeusoft_report_payloads.py --mode explore --explore-target sales_inventory
+```
+
+这条模式当前只先覆盖销售域和库存域的第一批高价值接口：
+
+- `销售清单`
+- `零售明细统计`
+- `库存明细统计`
+- `出入库单据`
+
+默认行为是：
+
+- 先探测
+- 不默认写 `capture`
+- 结果落到 `tmp/capture-samples/exploration/`
+
+如果确实需要把探索请求一并留痕到 `capture`，再显式加：
+
+```bash
+--persist-detection
+```

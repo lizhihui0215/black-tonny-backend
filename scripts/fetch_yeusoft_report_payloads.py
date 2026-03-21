@@ -20,12 +20,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from app.services.erp_research_service import (
+    analyze_response_payload,
+    build_exploration_cases,
+    get_exploration_strategy,
+    get_exploration_target_titles,
+    should_persist_capture,
+    summarize_exploration_results,
+)
+
 
 SAMPLES_DIR = PROJECT_ROOT / "tmp" / "capture-samples"
 REPORT_DOC_PATH = SAMPLES_DIR / "report_api_samples.md"
 README_PATH = SAMPLES_DIR / "README.md"
 DEFAULT_SESSION_PATH = SAMPLES_DIR / "yeusoft_session.json"
 RAW_OUTPUT_ROOT = SAMPLES_DIR / "raw"
+EXPLORATION_OUTPUT_ROOT = SAMPLES_DIR / "exploration"
 LOCAL_TZ = ZoneInfo("Asia/Shanghai")
 
 LOGIN_COMPANY_URL = "https://jyapi.yeusoft.net/JyApi/Authorize/CompanyUserPassWord"
@@ -473,13 +483,320 @@ def update_capture_batch_safe(capture_batch_id: str, **kwargs: Any) -> None:
     update_capture_batch(capture_batch_id, **kwargs)
 
 
+def perform_request(
+    transport: str,
+    url: str,
+    payload: dict[str, Any] | list[Any],
+    headers: dict[str, str],
+) -> tuple[int, Any]:
+    if transport == "curl":
+        return curl_post_json(url, payload, headers=headers)
+    return post_json(url, payload, headers=headers)
+
+
+def bootstrap_capture_batch(
+    capture_batch_id: str | None,
+    auth: AuthContext,
+    company_code: str,
+    api_base_url: str | None,
+) -> None:
+    if not capture_batch_id:
+        return
+    if auth.source == "login":
+        append_capture_payload_safe(
+            capture_batch_id,
+            source_endpoint="yeusoft.authorize.company_user_password",
+            payload={"company_code": company_code},
+            request_params={"phone": auth.phone, "device": "codex-capture"},
+        )
+        append_capture_payload_safe(
+            capture_batch_id,
+            source_endpoint="yeusoft.authorize.login",
+            payload={
+                "MovePhone": auth.raw_login_data.get("MovePhone") if auth.raw_login_data else None,
+                "UserName": auth.user_name,
+                "DeptName": auth.dept_name,
+                "DeptCode": auth.dept_code,
+                "JyApiUrl": auth.raw_login_data.get("JyApiUrl") if auth.raw_login_data else None,
+                "JyApiV2": auth.raw_login_data.get("JyApiV2") if auth.raw_login_data else None,
+                "Version": auth.raw_login_data.get("Version") if auth.raw_login_data else None,
+                "ExpiredTime": auth.raw_login_data.get("ExpiredTime") if auth.raw_login_data else None,
+            },
+            request_params={"phone": auth.phone, "company_code": company_code, "platform": "JyPos"},
+        )
+    elif auth.source == "session":
+        append_capture_payload_safe(
+            capture_batch_id,
+            source_endpoint="yeusoft.session.bootstrap",
+            payload={
+                "UserName": auth.user_name,
+                "DeptName": auth.dept_name,
+                "DeptCode": auth.dept_code,
+                "CompanyCode": company_code,
+                "JyApiUrl": api_base_url,
+            },
+            request_params={"source": "session-json", "session_path": str(auth.session_path) if auth.session_path else None},
+        )
+
+
+def run_fetch_mode(
+    *,
+    reports: list[ReportSpec],
+    output_root: Path,
+    transport: str,
+    access_token: str,
+    api_base_url: str | None,
+    auth: AuthContext,
+    company_code: str,
+    capture_batch_id: str | None,
+    refreshed: bool,
+) -> int:
+    run_dir = output_root / now_local().strftime("%Y%m%d-%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    meta: dict[str, Any] = {
+        "mode": "fetch",
+        "auth_source": auth.source,
+        "company_code": company_code,
+        "dept_code": auth.dept_code,
+        "dept_name": auth.dept_name,
+        "api_base_url": api_base_url,
+        "capture_batch_id": capture_batch_id,
+        "token_refreshed": refreshed,
+        "reports": [],
+    }
+
+    bootstrap_capture_batch(capture_batch_id, auth, company_code, api_base_url)
+
+    try:
+        for index, spec in enumerate(reports, start=1):
+            url = maybe_override_url(spec, api_base_url)
+            auth_headers = build_report_auth_headers(url, access_token)
+            status, payload = perform_request(transport, url, spec.payload, auth_headers)
+            report_entry = {
+                "title": spec.title,
+                "source_endpoint": spec.source_endpoint,
+                "url": url,
+                "status": status,
+                "filename": spec.filename,
+            }
+            meta["reports"].append(report_entry)
+            save_json(run_dir / spec.filename, payload)
+            if capture_batch_id:
+                append_capture_payload_safe(
+                    capture_batch_id,
+                    source_endpoint=spec.source_endpoint,
+                    payload=payload,
+                    request_params={
+                        "title": spec.title,
+                        "url": url,
+                        "payload": spec.payload,
+                        "report_index": index,
+                    },
+                    page_no=index,
+                )
+            print(f"[ok] {spec.title} -> {spec.filename}")
+
+        save_json(run_dir / "_meta.json", meta)
+        if capture_batch_id:
+            update_capture_batch_safe(capture_batch_id, batch_status="captured", pulled_at=now_local())
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "mode": "fetch",
+                    "capture_batch_id": capture_batch_id,
+                    "output_dir": str(run_dir),
+                    "report_count": len(meta["reports"]),
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 0
+    except error.HTTPError as exc:
+        message = exc.read().decode("utf-8", "ignore")
+        if capture_batch_id:
+            update_capture_batch_safe(capture_batch_id, batch_status="failed", error_message=message[:1000])
+        print(f"[error] HTTP {exc.code}: {message}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        if capture_batch_id:
+            update_capture_batch_safe(capture_batch_id, batch_status="failed", error_message=str(exc)[:1000])
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+
+
+def run_explore_mode(
+    *,
+    reports: list[ReportSpec],
+    output_root: Path,
+    transport: str,
+    access_token: str,
+    api_base_url: str | None,
+    auth: AuthContext,
+    company_code: str,
+    capture_batch_id: str | None,
+    refreshed: bool,
+    max_pages: int,
+    enum_limit: int,
+) -> int:
+    run_dir = output_root / now_local().strftime("%Y%m%d-%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    bootstrap_capture_batch(capture_batch_id, auth, company_code, api_base_url)
+
+    meta: dict[str, Any] = {
+        "mode": "explore",
+        "auth_source": auth.source,
+        "company_code": company_code,
+        "dept_code": auth.dept_code,
+        "dept_name": auth.dept_name,
+        "api_base_url": api_base_url,
+        "capture_batch_id": capture_batch_id,
+        "token_refreshed": refreshed,
+        "max_pages": max_pages,
+        "enum_limit": enum_limit,
+        "reports": [],
+        "has_failures": False,
+    }
+
+    for report_index, spec in enumerate(reports, start=1):
+        strategy = get_exploration_strategy(spec.title)
+        if strategy is None:
+            print(f"[warn] {spec.title} 缺少探索策略，已跳过", file=sys.stderr)
+            continue
+
+        url = maybe_override_url(spec, api_base_url)
+        auth_headers = build_report_auth_headers(url, access_token)
+        cases = build_exploration_cases(
+            {"title": spec.title, "payload": spec.payload},
+            strategy,
+            max_pages=max_pages,
+            enum_limit=enum_limit,
+        )
+
+        probe_results: list[dict[str, Any]] = []
+        for case_index, case in enumerate(cases, start=1):
+            result_entry = {
+                "case_id": case["case_id"],
+                "kind": case["kind"],
+                "label": case["label"],
+                "probe_context": case["probe_context"],
+                "request_payload": case["payload"],
+            }
+            try:
+                status, payload = perform_request(transport, url, case["payload"], auth_headers)
+                analysis = analyze_response_payload(payload)
+                result_entry.update(
+                    {
+                        "status": status,
+                        "analysis": analysis,
+                    }
+                )
+                if capture_batch_id:
+                    append_capture_payload_safe(
+                        capture_batch_id,
+                        source_endpoint=spec.source_endpoint,
+                        payload=payload,
+                        request_params={
+                            "mode": "explore",
+                            "title": spec.title,
+                            "url": url,
+                            "payload": case["payload"],
+                            "report_index": report_index,
+                            "case_index": case_index,
+                            "case_id": case["case_id"],
+                            "label": case["label"],
+                        },
+                        page_no=case_index,
+                    )
+            except Exception as exc:  # pragma: no cover - network/runtime failure path
+                meta["has_failures"] = True
+                result_entry.update(
+                    {
+                        "status": None,
+                        "error": str(exc),
+                    }
+                )
+            probe_results.append(result_entry)
+
+        summary = summarize_exploration_results(strategy, probe_results)
+        report_result = {
+            "title": spec.title,
+            "source_endpoint": spec.source_endpoint,
+            "url": url,
+            "original_payload": spec.payload,
+            "risk_labels": summary["risk_labels"],
+            "found_additional_pages": summary["found_additional_pages"],
+            "found_distinct_enum_results": summary["found_distinct_enum_results"],
+            "recommended_capture_strategy": summary["recommended_capture_strategy"],
+            "strategy": {
+                "pagination": (
+                    {
+                        "page_path": strategy.pagination.page_path,
+                        "page_size_path": strategy.pagination.page_size_path,
+                        "start_page": strategy.pagination.start_page,
+                        "paged_size": strategy.pagination.paged_size,
+                        "include_zero_size_probe": strategy.pagination.include_zero_size_probe,
+                    }
+                    if strategy.pagination
+                    else None
+                ),
+                "enum_probes": [
+                    {"path": enum_probe.path, "candidates": list(enum_probe.candidates)}
+                    for enum_probe in strategy.enum_probes
+                ],
+                "context_fields": list(strategy.context_fields),
+                "combine_enum_with_pagination": strategy.combine_enum_with_pagination,
+            },
+            "probe_results": probe_results,
+            "summary": summary,
+        }
+        save_json(run_dir / f"{slugify(spec.title)}.exploration.json", report_result)
+        meta["reports"].append(
+            {
+                "title": spec.title,
+                "file": f"{slugify(spec.title)}.exploration.json",
+                "probe_count": len(probe_results),
+                "risk_labels": summary["risk_labels"],
+                "recommended_capture_strategy": summary["recommended_capture_strategy"],
+                "found_additional_pages": summary["found_additional_pages"],
+                "found_distinct_enum_results": summary["found_distinct_enum_results"],
+            }
+        )
+        print(f"[ok] explore {spec.title} -> {slugify(spec.title)}.exploration.json")
+
+    save_json(run_dir / "exploration-meta.json", meta)
+    if capture_batch_id:
+        batch_status = "captured" if not meta["has_failures"] else "partial"
+        update_capture_batch_safe(capture_batch_id, batch_status=batch_status, pulled_at=now_local())
+    print(
+        json.dumps(
+            {
+                "ok": not meta["has_failures"],
+                "mode": "explore",
+                "capture_batch_id": capture_batch_id,
+                "output_dir": str(run_dir),
+                "report_count": len(meta["reports"]),
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="登录 Yeusoft 并按 report_api_samples.md 批量抓原始报表响应")
     parser.add_argument("--report-doc", default=str(REPORT_DOC_PATH))
     parser.add_argument("--readme", default=str(README_PATH))
     parser.add_argument("--output-dir", default=str(RAW_OUTPUT_ROOT))
+    parser.add_argument("--mode", choices=["fetch", "explore"], default="fetch", help="fetch 按样本单次抓取；explore 按策略做分页/枚举探测")
     parser.add_argument("--only", action="append", default=[], help="只抓指定报表标题，可重复传入")
     parser.add_argument("--skip-db", action="store_true", help="只落本地文件，不写 capture 库")
+    parser.add_argument("--explore-target", choices=["sales_inventory"], default="sales_inventory", help="explore 模式下要跑的接口范围")
+    parser.add_argument("--max-pages", type=int, default=2, help="explore 模式下每个接口最多探测多少个分页页码")
+    parser.add_argument("--enum-limit", type=int, default=3, help="explore 模式下每个枚举字段最多探测多少个候选值")
+    parser.add_argument("--persist-detection", action="store_true", help="explore 模式下显式开启写 capture 库")
     parser.add_argument(
         "--auth-source",
         choices=["auto", "session", "login"],
@@ -518,6 +835,9 @@ def main() -> int:
             persist_session_refresh(auth, access_token, refresh_expired_time)
 
     reports = parse_report_specs(report_doc)
+    if args.mode == "explore" and not args.only:
+        target_titles = set(get_exploration_target_titles(args.explore_target))
+        reports = [report for report in reports if report.title in target_titles]
     if args.only:
         wanted = set(args.only)
         reports = [report for report in reports if report.title in wanted]
@@ -526,115 +846,40 @@ def main() -> int:
         print("未解析到可抓取的报表接口", file=sys.stderr)
         return 1
 
-    capture_batch_id = None if args.skip_db else try_create_capture_batch("yeusoft-report-bulk")
-    run_dir = output_root / now_local().strftime("%Y%m%d-%H%M%S")
-    run_dir.mkdir(parents=True, exist_ok=True)
+    persist_capture = should_persist_capture(
+        args.mode,
+        skip_db=args.skip_db,
+        persist_detection=args.persist_detection,
+    )
+    source_name = "yeusoft-report-exploration" if args.mode == "explore" else "yeusoft-report-bulk"
+    capture_batch_id = try_create_capture_batch(source_name) if persist_capture else None
 
-    meta: dict[str, Any] = {
-        "auth_source": auth.source,
-        "company_code": company_code,
-        "dept_code": auth.dept_code,
-        "dept_name": auth.dept_name,
-        "api_base_url": api_base_url,
-        "capture_batch_id": capture_batch_id,
-        "token_refreshed": refreshed,
-        "reports": [],
-    }
-
-    if capture_batch_id and auth.source == "login":
-        append_capture_payload_safe(
-            capture_batch_id,
-            source_endpoint="yeusoft.authorize.company_user_password",
-            payload={"company_code": company_code},
-            request_params={"phone": auth.phone, "device": "codex-capture"},
-        )
-        append_capture_payload_safe(
-            capture_batch_id,
-            source_endpoint="yeusoft.authorize.login",
-            payload={
-                "MovePhone": auth.raw_login_data.get("MovePhone") if auth.raw_login_data else None,
-                "UserName": auth.user_name,
-                "DeptName": auth.dept_name,
-                "DeptCode": auth.dept_code,
-                "JyApiUrl": auth.raw_login_data.get("JyApiUrl") if auth.raw_login_data else None,
-                "JyApiV2": auth.raw_login_data.get("JyApiV2") if auth.raw_login_data else None,
-                "Version": auth.raw_login_data.get("Version") if auth.raw_login_data else None,
-                "ExpiredTime": auth.raw_login_data.get("ExpiredTime") if auth.raw_login_data else None,
-            },
-            request_params={"phone": auth.phone, "company_code": company_code, "platform": "JyPos"},
-        )
-    elif capture_batch_id and auth.source == "session":
-        append_capture_payload_safe(
-            capture_batch_id,
-            source_endpoint="yeusoft.session.bootstrap",
-            payload={
-                "UserName": auth.user_name,
-                "DeptName": auth.dept_name,
-                "DeptCode": auth.dept_code,
-                "CompanyCode": company_code,
-                "JyApiUrl": api_base_url,
-            },
-            request_params={"source": "session-json", "session_path": str(session_path)},
+    if args.mode == "explore":
+        return run_explore_mode(
+            reports=reports,
+            output_root=EXPLORATION_OUTPUT_ROOT,
+            transport=args.transport,
+            access_token=access_token,
+            api_base_url=api_base_url,
+            auth=auth,
+            company_code=company_code,
+            capture_batch_id=capture_batch_id,
+            refreshed=refreshed,
+            max_pages=max(1, args.max_pages),
+            enum_limit=max(1, args.enum_limit),
         )
 
-    try:
-        for index, spec in enumerate(reports, start=1):
-            url = maybe_override_url(spec, api_base_url)
-            auth_headers = build_report_auth_headers(url, access_token)
-            if args.transport == "curl":
-                status, payload = curl_post_json(url, spec.payload, headers=auth_headers)
-            else:
-                status, payload = post_json(url, spec.payload, headers=auth_headers)
-            report_entry = {
-                "title": spec.title,
-                "source_endpoint": spec.source_endpoint,
-                "url": url,
-                "status": status,
-                "filename": spec.filename,
-            }
-            meta["reports"].append(report_entry)
-            save_json(run_dir / spec.filename, payload)
-            if capture_batch_id:
-                append_capture_payload_safe(
-                    capture_batch_id,
-                    source_endpoint=spec.source_endpoint,
-                    payload=payload,
-                    request_params={
-                        "title": spec.title,
-                        "url": url,
-                        "payload": spec.payload,
-                        "report_index": index,
-                    },
-                    page_no=index,
-                )
-            print(f"[ok] {spec.title} -> {spec.filename}")
-
-        save_json(run_dir / "_meta.json", meta)
-        if capture_batch_id:
-            update_capture_batch_safe(capture_batch_id, batch_status="captured", pulled_at=now_local())
-        print(
-            json.dumps(
-                {
-                    "ok": True,
-                    "capture_batch_id": capture_batch_id,
-                    "output_dir": str(run_dir),
-                    "report_count": len(meta["reports"]),
-                },
-                ensure_ascii=False,
-            )
-        )
-        return 0
-    except error.HTTPError as exc:
-        message = exc.read().decode("utf-8", "ignore")
-        if capture_batch_id:
-            update_capture_batch_safe(capture_batch_id, batch_status="failed", error_message=message[:1000])
-        print(f"[error] HTTP {exc.code}: {message}", file=sys.stderr)
-        return 1
-    except Exception as exc:
-        if capture_batch_id:
-            update_capture_batch_safe(capture_batch_id, batch_status="failed", error_message=str(exc)[:1000])
-        print(f"[error] {exc}", file=sys.stderr)
-        return 1
+    return run_fetch_mode(
+        reports=reports,
+        output_root=output_root,
+        transport=args.transport,
+        access_token=access_token,
+        api_base_url=api_base_url,
+        auth=auth,
+        company_code=company_code,
+        capture_batch_id=capture_batch_id,
+        refreshed=refreshed,
+    )
 
 
 if __name__ == "__main__":

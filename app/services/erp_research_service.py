@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from itertools import product
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +71,98 @@ DIY_CONTEXT_HINTS = {
 
 COST_FIELD_PATTERN = re.compile(r"(成本|cost)", re.IGNORECASE)
 PRICE_FIELD_PATTERN = re.compile(r"(吊牌|零售|售价|牌价|RetailPrice|TagPrice|Price)", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class EnumProbeSpec:
+    path: str
+    candidates: tuple[Any, ...]
+
+
+@dataclass(frozen=True)
+class PaginationProbeSpec:
+    page_path: str
+    page_size_path: str
+    start_page: int = 0
+    paged_size: int = 20
+    include_zero_size_probe: bool = False
+
+
+@dataclass(frozen=True)
+class ExplorationStrategy:
+    title: str
+    pagination: PaginationProbeSpec | None = None
+    enum_probes: tuple[EnumProbeSpec, ...] = ()
+    context_fields: tuple[str, ...] = ()
+    combine_enum_with_pagination: bool = False
+    result_snapshot: bool = False
+
+
+EXPLORATION_TARGETS: dict[str, tuple[str, ...]] = {
+    "sales_inventory": (
+        "销售清单",
+        "零售明细统计",
+        "库存明细统计",
+        "出入库单据",
+    )
+}
+
+EXPLORATION_STRATEGIES: dict[str, ExplorationStrategy] = {
+    "零售明细统计": ExplorationStrategy(
+        title="零售明细统计",
+        pagination=PaginationProbeSpec(
+            page_path="page",
+            page_size_path="pagesize",
+            start_page=0,
+            paged_size=20,
+            include_zero_size_probe=True,
+        ),
+    ),
+    "销售清单": ExplorationStrategy(
+        title="销售清单",
+        enum_probes=(
+            EnumProbeSpec(
+                path="parameter.Tiem",
+                candidates=("0", "1", "2"),
+            ),
+        ),
+        context_fields=("parameter.Depart",),
+    ),
+    "库存明细统计": ExplorationStrategy(
+        title="库存明细统计",
+        pagination=PaginationProbeSpec(
+            page_path="page",
+            page_size_path="pagesize",
+            start_page=0,
+            paged_size=20,
+        ),
+        enum_probes=(
+            EnumProbeSpec(
+                path="stockflag",
+                candidates=("0", "1", "2"),
+            ),
+        ),
+        combine_enum_with_pagination=True,
+    ),
+    "出入库单据": ExplorationStrategy(
+        title="出入库单据",
+        pagination=PaginationProbeSpec(
+            page_path="page",
+            page_size_path="pagesize",
+            start_page=0,
+            paged_size=20,
+            include_zero_size_probe=True,
+        ),
+        enum_probes=(
+            EnumProbeSpec(
+                path="datetype",
+                candidates=("1", "2"),
+            ),
+        ),
+        context_fields=("type", "doctype"),
+        combine_enum_with_pagination=True,
+    ),
+}
 
 
 def slugify(value: str) -> str:
@@ -220,6 +316,10 @@ def _extract_table_data(payload: Any) -> tuple[list[str], list[Any], str]:
         for item in payload["retdata"]:
             if isinstance(item, Mapping) and isinstance(item.get("ColumnsList"), list) and isinstance(item.get("Data"), list):
                 return list(item["ColumnsList"]), list(item["Data"]), "retdata[].ColumnsList+Data"
+            if isinstance(item, Mapping) and isinstance(item.get("Title"), list) and isinstance(item.get("Data"), list):
+                rows = list(item["Data"])
+                columns = list(rows[0].keys()) if rows and isinstance(rows[0], Mapping) else []
+                return columns, rows, "retdata[].Title+Data"
 
     if isinstance(payload, Mapping) and isinstance(payload.get("Data"), Mapping):
         data = payload["Data"]
@@ -287,19 +387,33 @@ def _field_stats(columns: list[str], rows: list[Any]) -> dict[str, Any]:
     }
 
 
-def analyze_response_sample(sample_path: Path) -> dict[str, Any]:
-    payload = json.loads(sample_path.read_text("utf-8"))
+def _build_row_signature(rows: list[Any], limit: int = 5) -> str:
+    preview = rows[:limit]
+    raw = json.dumps(preview, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
+    digest = hashlib.sha1(f"{len(rows)}|{raw}".encode("utf-8")).hexdigest()
+    return digest[:16]
+
+
+def analyze_response_payload(payload: Any, *, sample_path: str | None = None) -> dict[str, Any]:
     columns, rows, shape = _extract_table_data(payload)
     field_stats = _field_stats(columns, rows)
-    return {
-        "sample_path": str(sample_path),
+    result = {
         "response_shape": shape,
         "row_count": len(rows),
         "column_count": len(columns),
         "columns_preview": columns[:20],
+        "row_signature": _build_row_signature(rows),
         "cost_fields": field_stats["cost_fields"],
         "price_fields": field_stats["price_fields"],
     }
+    if sample_path is not None:
+        result["sample_path"] = sample_path
+    return result
+
+
+def analyze_response_sample(sample_path: Path) -> dict[str, Any]:
+    payload = json.loads(sample_path.read_text("utf-8"))
+    return analyze_response_payload(payload, sample_path=str(sample_path))
 
 
 def find_latest_sample(raw_root: Path, title: str) -> Path | None:
@@ -329,3 +443,248 @@ def build_report_matrix(report_doc_path: Path, raw_root: Path) -> list[dict[str,
             }
         )
     return matrix
+
+
+def get_exploration_target_titles(target: str) -> tuple[str, ...]:
+    if target not in EXPLORATION_TARGETS:
+        raise KeyError(target)
+    return EXPLORATION_TARGETS[target]
+
+
+def get_exploration_strategy(title: str) -> ExplorationStrategy | None:
+    return EXPLORATION_STRATEGIES.get(title)
+
+
+def should_persist_capture(mode: str, *, skip_db: bool, persist_detection: bool) -> bool:
+    if skip_db:
+        return False
+    if mode == "explore":
+        return persist_detection
+    return True
+
+
+def _get_payload_value(payload: Any, path: str) -> Any:
+    current = payload
+    for part in path.split("."):
+        if not isinstance(current, Mapping) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def _set_payload_value(payload: Any, path: str, value: Any) -> None:
+    current = payload
+    parts = path.split(".")
+    for part in parts[:-1]:
+        if not isinstance(current, dict):
+            raise TypeError(f"路径 {path} 无法写入")
+        current = current.setdefault(part, {})
+    if not isinstance(current, dict):
+        raise TypeError(f"路径 {path} 无法写入")
+    current[parts[-1]] = value
+
+
+def _dedupe_candidates(sample_value: Any, candidates: Sequence[Any], limit: int) -> list[Any]:
+    result: list[Any] = []
+    for candidate in (sample_value, *candidates):
+        if candidate in result or candidate is None:
+            continue
+        result.append(candidate)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _json_signature(payload: Any) -> str:
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def build_exploration_cases(
+    report_spec: Mapping[str, Any],
+    strategy: ExplorationStrategy,
+    *,
+    max_pages: int,
+    enum_limit: int,
+) -> list[dict[str, Any]]:
+    base_payload = copy.deepcopy(report_spec["payload"])
+    if not isinstance(base_payload, dict):
+        raise TypeError("当前探索模式只支持 JSON object payload")
+
+    cases: list[dict[str, Any]] = []
+    seen_signatures: set[tuple[str, str]] = set()
+
+    def add_case(kind: str, payload: dict[str, Any], label_parts: list[str], probe_context: dict[str, Any]) -> None:
+        signature = _json_signature(payload)
+        dedupe_key = (kind, signature)
+        if dedupe_key in seen_signatures:
+            return
+        seen_signatures.add(dedupe_key)
+        case_id = slugify("__".join([strategy.title, kind, *label_parts]))
+        cases.append(
+            {
+                "case_id": case_id,
+                "kind": kind,
+                "label": " | ".join(label_parts) if label_parts else "base",
+                "payload": payload,
+                "probe_context": probe_context,
+            }
+        )
+
+    add_case("base", copy.deepcopy(base_payload), [], {"context_fields": list(strategy.context_fields)})
+
+    enum_variants = [({"payload": copy.deepcopy(base_payload), "labels": [], "context": {}})]
+    if strategy.enum_probes:
+        enum_variants = []
+        candidate_lists: list[tuple[EnumProbeSpec, list[Any]]] = []
+        for enum_probe in strategy.enum_probes:
+            sample_value = _get_payload_value(base_payload, enum_probe.path)
+            candidates = _dedupe_candidates(sample_value, enum_probe.candidates, enum_limit)
+            candidate_lists.append((enum_probe, candidates))
+
+        for combination in product(*[candidates for _, candidates in candidate_lists]):
+            payload = copy.deepcopy(base_payload)
+            labels: list[str] = []
+            context: dict[str, Any] = {}
+            for (enum_probe, _), candidate in zip(candidate_lists, combination):
+                _set_payload_value(payload, enum_probe.path, candidate)
+                labels.append(f"{enum_probe.path}={candidate}")
+                context[enum_probe.path] = candidate
+            enum_variants.append({"payload": payload, "labels": labels, "context": context})
+
+        if not strategy.combine_enum_with_pagination:
+            for variant in enum_variants:
+                add_case("enum", variant["payload"], variant["labels"], variant["context"])
+
+    pagination = strategy.pagination
+    if pagination:
+        variants = enum_variants if strategy.combine_enum_with_pagination else [{"payload": copy.deepcopy(base_payload), "labels": [], "context": {}}]
+        for variant in variants:
+            if pagination.include_zero_size_probe:
+                payload = copy.deepcopy(variant["payload"])
+                _set_payload_value(payload, pagination.page_path, pagination.start_page)
+                _set_payload_value(payload, pagination.page_size_path, 0)
+                add_case(
+                    "pagination",
+                    payload,
+                    [*variant["labels"], f"{pagination.page_path}={pagination.start_page}", f"{pagination.page_size_path}=0"],
+                    {
+                        **variant["context"],
+                        pagination.page_path: pagination.start_page,
+                        pagination.page_size_path: 0,
+                    },
+                )
+
+            for offset in range(max_pages):
+                page_value = pagination.start_page + offset
+                payload = copy.deepcopy(variant["payload"])
+                _set_payload_value(payload, pagination.page_path, page_value)
+                _set_payload_value(payload, pagination.page_size_path, pagination.paged_size)
+                add_case(
+                    "pagination",
+                    payload,
+                    [
+                        *variant["labels"],
+                        f"{pagination.page_path}={page_value}",
+                        f"{pagination.page_size_path}={pagination.paged_size}",
+                    ],
+                    {
+                        **variant["context"],
+                        pagination.page_path: page_value,
+                        pagination.page_size_path: pagination.paged_size,
+                    },
+                )
+
+    return cases
+
+
+def summarize_exploration_results(
+    strategy: ExplorationStrategy,
+    probe_results: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    found_additional_pages = False
+    enum_paths = tuple(enum_probe.path for enum_probe in strategy.enum_probes)
+    risk_labels: list[str] = []
+
+    def result_signature(result: Mapping[str, Any]) -> tuple[Any, ...]:
+        analysis = result.get("analysis") or {}
+        return (
+            analysis.get("response_shape"),
+            analysis.get("row_count"),
+            analysis.get("column_count"),
+            analysis.get("row_signature"),
+        )
+
+    def enum_scope_key(context: Mapping[str, Any]) -> tuple[tuple[str, Any], ...]:
+        return tuple((path, context.get(path)) for path in enum_paths if path in context)
+
+    def is_usable_result(result: Mapping[str, Any]) -> bool:
+        analysis = result.get("analysis") or {}
+        return bool(analysis) and analysis.get("row_count", 0) > 0
+
+    pagination_baselines: dict[tuple[tuple[str, Any], ...], tuple[Any, ...]] = {}
+    if strategy.pagination:
+        for result in probe_results:
+            if not is_usable_result(result):
+                continue
+            context = result.get("probe_context") or {}
+            if context.get(strategy.pagination.page_path) != strategy.pagination.start_page:
+                continue
+            page_size = context.get(strategy.pagination.page_size_path)
+            if page_size not in (None, strategy.pagination.paged_size):
+                continue
+            pagination_baselines.setdefault(enum_scope_key(context), result_signature(result))
+
+        for result in probe_results:
+            if not is_usable_result(result):
+                continue
+            context = result.get("probe_context") or {}
+            page_value = context.get(strategy.pagination.page_path)
+            if not isinstance(page_value, int) or page_value <= strategy.pagination.start_page:
+                continue
+            baseline = pagination_baselines.get(enum_scope_key(context))
+            if baseline is not None and result_signature(result) != baseline:
+                found_additional_pages = True
+                break
+
+    enum_signatures_by_scope: dict[tuple[tuple[str, Any], ...], tuple[Any, ...]] = {}
+    if enum_paths:
+        for result in probe_results:
+            if not is_usable_result(result):
+                continue
+            context = result.get("probe_context") or {}
+            scope_key = enum_scope_key(context)
+            if not scope_key:
+                continue
+            if strategy.pagination:
+                page_value = context.get(strategy.pagination.page_path)
+                page_size = context.get(strategy.pagination.page_size_path)
+                if page_value != strategy.pagination.start_page:
+                    continue
+                if page_size not in (None, strategy.pagination.paged_size):
+                    continue
+            enum_signatures_by_scope.setdefault(scope_key, result_signature(result))
+
+    found_distinct_enum_results = len(set(enum_signatures_by_scope.values())) > 1
+
+    if strategy.result_snapshot:
+        risk_labels.append("结果视图重叠风险")
+        recommended = "结果快照"
+    else:
+        if found_distinct_enum_results:
+            risk_labels.append("需要扫枚举")
+        if found_additional_pages:
+            risk_labels.append("需要翻页")
+
+        if found_distinct_enum_results:
+            recommended = "枚举 sweep"
+        elif found_additional_pages:
+            recommended = "自动翻页"
+        else:
+            recommended = "单请求"
+
+    return {
+        "found_additional_pages": found_additional_pages,
+        "found_distinct_enum_results": found_distinct_enum_results,
+        "risk_labels": risk_labels,
+        "recommended_capture_strategy": recommended,
+    }
