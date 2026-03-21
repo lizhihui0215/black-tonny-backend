@@ -173,3 +173,34 @@
 
 - `docs/two-database-architecture.md`
 - `docs/dashboard/08-summary-capture-mapping.md`
+
+---
+
+## 7. 研究辅助工具
+
+当前已经提供一个样本分析脚本，用来自动扫描：
+
+- 请求里的日期、组织、搜索、枚举、分页和 DIY 上下文字段
+- 样本响应里的行数、列数
+- 成本字段是否存在
+- 吊牌价 / 零售价字段是否存在
+- 当前接口建议的抓取策略和风险标签
+
+运行方式：
+
+```bash
+python3 scripts/analyze_yeusoft_report_samples.py
+```
+
+默认输出到：
+
+- `tmp/capture-samples/analysis/report-matrix-*.json`
+
+这份输出适合作为后续：
+
+- 过滤条件探索
+- 分页策略补齐
+- 角色差异审计
+- capture 主链接口优先级排序
+
+的基础输入。
