@@ -30,7 +30,7 @@
 - visible_but_failed：`0`
 - container_only：`8`
 - 全域门槛已达成：`是`
-- 已准入主链：`0`
+- 已准入主链：`1`
 - 已真实写入 capture：`8`
 - 已 HTTP 回证：`9`
 - 已单变量：`3`
@@ -46,9 +46,9 @@
 - `6` 次：尚未完成 HTTP 回证
 - `4` 次：配置/设置类页面，默认不进入事实主链
 - `3` 次：尚未确认是否只保留结果快照定位
-- `1` 次：warecause 语义仍待确认
 - `1` 次：condition 语义仍待确认
 - `1` 次：是否存在服务端上限仍待确认
+- `1` 次：Search 语义仍待确认
 
 ## 4. 分域状态
 
@@ -68,7 +68,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | GetDIYReportData(E004001008_2) | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 是 | `7d361ed0079f4584871996db0cf721e5` | 报表管理 / 零售报表 / 销售清单 | - | 已可按 sale_no 分流正常明细与逆向明细，准备首批 capture 准入 |
 | SelSaleReport | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 是 | `7d361ed0079f4584871996db0cf721e5` | 报表管理 / 零售报表 / 销售清单 | - | 已具备首批 capture 准入条件，保持 serving 冻结并先观测批次回归指标 |
-| 商品资料 / SelWareList | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 是 | `ac05374992f645acbefc2f9383dd480f` | 基础资料 / 商品资料 | warecause 语义仍待确认 | 继续确认 warecause 的业务范围；若无额外限制，可按大页尺寸顺序翻页进入首批 capture admit |
+| 商品资料 / SelWareList | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 是 | 是 | `453246095da848939df0c7f2768f9b0c` | 基础资料 / 商品资料 | - | 按推荐大页尺寸顺序翻页进入正式 capture admit，并保留 warecause 为后续过滤语义研究项 |
 | 客户资料 / SelDeptList | 主源候选 | 已基线 | 是 | covered | 能跑但不能信 | 否 | 否 | 是 | `7608a0670e1d44aea20fb886530da93f` | 基础资料 / 客户资料 | 尚未完成单变量探测；尚未完成 HTTP 回证 | 补 客户资料 的单变量探测与 HTTP 回证 |
 | SelDeptSaleList | 对账源 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 否 | `-` | 报表管理 / 零售报表 / 零售明细统计 | - | 保持研究/对账源定位，补充极端单日窗口的 edge case 说明即可 |
 | sales_reverse_document_lines | 研究留痕 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 是 | `7d361ed0079f4584871996db0cf721e5` | 报表管理 / 零售报表 / 销售清单 | - | 继续保持 capture 研究留痕，不进入 serving 或 dashboard 主链 |
@@ -154,7 +154,7 @@
 - `inventory_evidence`: `tmp/capture-samples/analysis/inventory-evidence-chain-20260322-184350.json`
 - `return_detail_evidence`: `tmp/capture-samples/analysis/return-detail-evidence-chain-20260322-235002.json`
 - `member_evidence`: `tmp/capture-samples/analysis/member-evidence-chain-20260322-200117.json`
-- `product_evidence`: `tmp/capture-samples/analysis/product-evidence-chain-20260323-004130.json`
+- `product_evidence`: `tmp/capture-samples/analysis/product-evidence-chain-20260323-005323.json`
 - `inventory_outin_research`: `tmp/capture-samples/analysis/inventory-outin-capture-research-20260322-200314.json`
 - `menu_coverage_audit`: `tmp/capture-samples/analysis/menu-coverage-audit-20260322-154931.json`
 - `capture_runtime_files`
@@ -173,6 +173,8 @@
   - `tmp/capture-samples/analysis/inventory-stock-capture-admission-20260322-190925.json`
   - `tmp/capture-samples/analysis/inventory-stock-capture-admission-20260322-200250.json`
   - `tmp/capture-samples/analysis/member-capture-research-20260322-202444.json`
+  - `tmp/capture-samples/analysis/product-capture-admission-20260323-005308.json`
+  - `tmp/capture-samples/analysis/product-capture-admission-20260323-005413.json`
   - `tmp/capture-samples/analysis/product-capture-research-20260322-225304.json`
   - `tmp/capture-samples/analysis/sales-capture-admission-20260322-200741.json`
 - `ledger_files`

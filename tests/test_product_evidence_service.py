@@ -48,12 +48,47 @@ def test_build_product_http_evidence_chain_marks_pagination_and_exact_search() -
         ),
         "missing": _table_payload([]),
     }
+    full_capture_payloads = {
+        "1": {
+            "retdata": [
+                {
+                    "Count": "5",
+                    "Data": [
+                        {"SpeNum": "A001"},
+                        {"SpeNum": "A002"},
+                    ],
+                }
+            ]
+        },
+        "2": {
+            "retdata": [
+                {
+                    "Count": "5",
+                    "Data": [
+                        {"SpeNum": "A003"},
+                        {"SpeNum": "A004"},
+                    ],
+                }
+            ]
+        },
+        "3": {
+            "retdata": [
+                {
+                    "Count": "5",
+                    "Data": [
+                        {"SpeNum": "A005"},
+                    ],
+                }
+            ]
+        },
+    }
 
     result = build_product_http_evidence_chain(
         product_baseline_payload=baseline,
         product_page_payloads=page_payloads,
         product_pagesize_payloads=pagesize_payloads,
         product_spenum_payloads=spenum_payloads,
+        product_full_capture_payloads=full_capture_payloads,
     )
 
     product_list = result["product_list"]
@@ -65,6 +100,9 @@ def test_build_product_http_evidence_chain_marks_pagination_and_exact_search() -
     assert product_list["search_behavior"]["broad_match_values"] == ["TOX1"]
     assert product_list["search_behavior"]["zero_match_values"] == ["missing"]
     assert product_list["capture_parameter_plan"]["page_mode"] == "sequential_pagination"
-    assert product_list["capture_admission_ready"] is False
-    assert product_list["blocking_issues"] == ["warecause 语义仍待确认"]
-    assert result["conclusion"]["product_list_mainline_ready"] is False
+    assert product_list["capture_parameter_plan"]["full_capture_with_empty_warecause"] is True
+    assert product_list["full_capture_probe_summary"]["declared_total_count"] == 5
+    assert product_list["full_capture_probe_summary"]["observed_total_rows"] == 5
+    assert product_list["capture_admission_ready"] is True
+    assert product_list["blocking_issues"] == []
+    assert result["conclusion"]["product_list_mainline_ready"] is True

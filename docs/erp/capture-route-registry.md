@@ -19,8 +19,8 @@
 
 - 路线总数：`34`
 - 可用原始路线：`28`
-- 已确认 capture 路线名：`5`
-- 可准入 capture：`4`
+- 已确认 capture 路线名：`6`
+- 可准入 capture：`5`
 - 已真实写入 capture：`8`
 - 全域门槛已达成：`是`
 
@@ -33,9 +33,9 @@
 
 按当前状态：
 - `可选快照留痕`：`14`
-- `可准入 capture`：`4`
+- `可准入 capture`：`5`
 - `不规划进入 capture`：`6`
-- `候选但阻塞`：`3`
+- `候选但阻塞`：`2`
 - `先继续研究`：`5`
 - `仅对账留痕`：`1`
 - `仅研究留痕`：`1`
@@ -73,7 +73,7 @@
 | 门店销售月报 / DeptMonthSalesReport | 结果快照 | 快照留痕 | 可选快照留痕 | `sales_deptmonthsalesreport_e660cf50` | 否 | `snapshot` | 否 | `-` | - | `snapshot_optional` | 报表管理 / 综合分析 / 门店销售月报 | 尚未完成分页/枚举确认 | 补 门店销售月报 的分页/枚举确认，保持结果快照定位 |
 | GetDIYReportData(E004001008_2) | 主源候选 | 主链事实 | 可准入 capture | `sales_document_lines` | 是 | `line` | 是 | `7d361ed0079f4584871996db0cf721e5` | - | `wave_1_sales` | 报表管理 / 零售报表 / 销售清单 | - | 已可按 sale_no 分流正常明细与逆向明细，准备首批 capture 准入 |
 | SelSaleReport | 主源候选 | 主链事实 | 可准入 capture | `sales_documents_head` | 是 | `head` | 是 | `7d361ed0079f4584871996db0cf721e5` | - | `wave_1_sales` | 报表管理 / 零售报表 / 销售清单 | - | 已具备首批 capture 准入条件，保持 serving 冻结并先观测批次回归指标 |
-| 商品资料 / SelWareList | 主源候选 | 主链事实 | 候选但阻塞 | `product_master_records` | 否 | `raw` | 是 | `ac05374992f645acbefc2f9383dd480f` | default_spenum=；default_warecause=；baseline_page=1；recommended_pagesize=5000；page_mode=sequential_pagination；exact_search_examples=['TMX1B90549A', 'TMX1B90550A', 'TMX1B90540A']；broad_search_examples=['TN', 'TOX1'] | `wave_1_sales` | 基础资料 / 商品资料 | warecause 语义仍待确认 | 继续确认 warecause 的业务范围；若无额外限制，可按大页尺寸顺序翻页进入首批 capture admit |
+| 商品资料 / SelWareList | 主源候选 | 主链事实 | 可准入 capture | `product_master_records` | 是 | `master` | 是 | `453246095da848939df0c7f2768f9b0c` | default_spenum=；default_warecause=；baseline_page=1；recommended_pagesize=5000；page_mode=sequential_pagination；full_capture_with_empty_warecause=True；exact_search_examples=['TMX1B90549A', 'TMX1B90550A', 'TMX1B90540A']；broad_search_examples=['TN', 'TOX1'] | `wave_1_sales` | 基础资料 / 商品资料 | - | 按推荐大页尺寸顺序翻页进入正式 capture admit，并保留 warecause 为后续过滤语义研究项 |
 | 客户资料 / SelDeptList | 主源候选 | 主链事实 | 先继续研究 | `customer_master_records` | 否 | `raw` | 是 | `7608a0670e1d44aea20fb886530da93f` | - | `wave_1_sales` | 基础资料 / 客户资料 | 尚未完成单变量探测；尚未完成 HTTP 回证 | 补 客户资料 的单变量探测与 HTTP 回证 |
 | 储值卡汇总 / GetDIYReportData | 结果快照 | 快照留痕 | 可选快照留痕 | `stored_value_route_5180a5fa` | 否 | `snapshot` | 否 | `-` | - | `snapshot_optional` | 报表管理 / 会员报表 / 储值卡汇总 | 尚未完成分页/枚举确认 | 补 储值卡汇总 的分页/枚举确认，保持结果快照定位 |
 | 储值按店汇总 / GetDIYReportData | 结果快照 | 快照留痕 | 可选快照留痕 | `stored_value_route_3e94fbcb` | 否 | `snapshot` | 否 | `-` | - | `snapshot_optional` | 报表管理 / 会员报表 / 储值按店汇总 | 尚未完成分页/枚举确认 | 补 储值按店汇总 的分页/枚举确认，保持结果快照定位 |
@@ -111,7 +111,6 @@
 
 ### `wave_1_sales`
 
-- `1` 次：warecause 语义仍待确认
 - `1` 次：尚未完成单变量探测
 - `1` 次：尚未完成 HTTP 回证
 

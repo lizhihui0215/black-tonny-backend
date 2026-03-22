@@ -17,12 +17,67 @@ def _variant_summary(*, value: Any, payload: Any) -> dict[str, Any]:
     }
 
 
+def extract_declared_total_count(payload: Any) -> int | None:
+    if isinstance(payload, dict):
+        retdata = payload.get("retdata")
+        if isinstance(retdata, dict):
+            raw_value = retdata.get("DataCount") or retdata.get("Count")
+            if raw_value not in (None, ""):
+                return int(raw_value)
+        if isinstance(retdata, list):
+            for item in retdata:
+                if not isinstance(item, dict):
+                    continue
+                raw_value = item.get("DataCount") or item.get("Count")
+                if raw_value not in (None, ""):
+                    return int(raw_value)
+    return None
+
+
+def _build_full_capture_probe_summary(
+    full_capture_payloads: Mapping[str, Any],
+) -> dict[str, Any]:
+    variants = [
+        _variant_summary(value=value, payload=payload)
+        for value, payload in full_capture_payloads.items()
+    ]
+    ordered_variants = sorted(variants, key=lambda item: int(item["value"]))
+    declared_total_count = None
+    for payload in full_capture_payloads.values():
+        declared_total_count = extract_declared_total_count(payload)
+        if declared_total_count is not None:
+            break
+    observed_total_rows = sum(int(item["row_count"] or 0) for item in ordered_variants)
+    terminal_page_row_count = int(ordered_variants[-1]["row_count"] or 0) if ordered_variants else 0
+    capture_page_size = max(
+        (
+            int(item["row_count"] or 0)
+            for item in ordered_variants[:-1]
+            if int(item["row_count"] or 0) > 0
+        ),
+        default=terminal_page_row_count,
+    )
+    reached_declared_total = declared_total_count is not None and observed_total_rows >= declared_total_count
+    terminal_short_page = capture_page_size > 0 and terminal_page_row_count < capture_page_size
+    return {
+        "variants": ordered_variants,
+        "declared_total_count": declared_total_count,
+        "observed_total_rows": observed_total_rows,
+        "capture_page_size": capture_page_size,
+        "terminal_page_row_count": terminal_page_row_count,
+        "reached_declared_total": reached_declared_total,
+        "terminal_short_page_detected": terminal_short_page,
+        "verified_with_empty_warecause": reached_declared_total or terminal_short_page,
+    }
+
+
 def build_product_http_evidence_chain(
     *,
     product_baseline_payload: Any,
     product_page_payloads: Mapping[str, Any],
     product_pagesize_payloads: Mapping[str, Any],
     product_spenum_payloads: Mapping[str, Any],
+    product_full_capture_payloads: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     baseline = analyze_response_payload(product_baseline_payload)
 
@@ -84,13 +139,15 @@ def build_product_http_evidence_chain(
         "scope_or_date_boundary",
         "mixed",
     }
+    full_capture_probe_summary = _build_full_capture_probe_summary(product_full_capture_payloads or {})
+    warecause_capture_ready = bool(full_capture_probe_summary.get("verified_with_empty_warecause"))
 
     blocking_issues = [
         issue
         for issue in (
             None if page_semantics["semantics"] == "pagination_page_switch" else "page 语义仍待确认",
             None if spenum_filter_confirmed else "spenum 语义仍待确认",
-            "warecause 语义仍待确认",
+            None if warecause_capture_ready else "尚未确认空 warecause 是否已覆盖当前账号全量商品数据",
             None if recommended_pagesize is not None else "尚未确认安全的大页尺寸",
             None if not service_cap_detected else "服务端页上限已触发但上限值仍待确认",
         )
@@ -103,6 +160,7 @@ def build_product_http_evidence_chain(
         "baseline_page": 1,
         "recommended_pagesize": recommended_pagesize,
         "page_mode": "sequential_pagination" if page_semantics["semantics"] == "pagination_page_switch" else "needs_followup",
+        "full_capture_with_empty_warecause": warecause_capture_ready,
         "exact_search_examples": exact_match_values,
         "broad_search_examples": broad_match_values,
     }
@@ -129,6 +187,7 @@ def build_product_http_evidence_chain(
                 "recommended_pagesize": recommended_pagesize,
                 "service_cap_detected": service_cap_detected,
             },
+            "full_capture_probe_summary": full_capture_probe_summary,
             "search_behavior": {
                 "exact_match_values": exact_match_values,
                 "broad_match_values": broad_match_values,
@@ -142,7 +201,9 @@ def build_product_http_evidence_chain(
         "conclusion": {
             "product_list_mainline_ready": capture_admission_ready,
             "next_focus": (
-                "商品资料已确认 page 顺序翻页与 spenum 精确搜索语义；下一步应确认 warecause 作用范围，并把大页尺寸纳入正式 capture admit。"
+                "商品资料已确认 page 顺序翻页、spenum 搜索与空 warecause 全量抓取；下一步应按大页尺寸顺序翻页进入正式 capture admit。"
+                if capture_admission_ready
+                else "商品资料已确认 page 顺序翻页与 spenum 搜索语义；下一步需继续确认空 warecause 是否已覆盖当前账号全量商品数据。"
             ),
         },
     }

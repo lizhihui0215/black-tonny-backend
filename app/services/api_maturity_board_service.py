@@ -303,6 +303,7 @@ def load_capture_runtime_state(
             "inventory-outin-capture-research-*.json",
             "inventory-outin-capture-admission-*.json",
             "member-capture-research-*.json",
+            "product-capture-admission-*.json",
             "product-capture-research-*.json",
             "customer-capture-research-*.json",
         )
@@ -345,8 +346,12 @@ def load_capture_runtime_state(
         if filename.startswith("member-capture-research-"):
             _register("会员中心 / SelVipInfoList", mode="research", payload=payload, path=path)
             continue
+        if filename.startswith("product-capture-admission-"):
+            _register("商品资料 / SelWareList", mode="admission", payload=payload, path=path)
+            continue
         if filename.startswith("product-capture-research-"):
-            _register("商品资料 / SelWareList", mode="research", payload=payload, path=path)
+            if "商品资料 / SelWareList" not in runtime_index:
+                _register("商品资料 / SelWareList", mode="research", payload=payload, path=path)
             continue
         if filename.startswith("customer-capture-research-"):
             _register("客户资料 / SelDeptList", mode="research", payload=payload, path=path)
@@ -870,12 +875,14 @@ def _build_product_evidence_entries(
     product_list = dict((product_evidence.get("product_list") or {}))
     parameter_semantics = dict((product_list.get("parameter_semantics") or {}))
     pagesize_probe_summary = dict((product_list.get("pagesize_probe_summary") or {}))
+    full_capture_probe_summary = dict((product_list.get("full_capture_probe_summary") or {}))
     search_behavior = dict((product_list.get("search_behavior") or {}))
     analysis_sources = [_repo_path(product_evidence_path, repo_root)]
     if product_page:
         analysis_sources.append(product_page["_source_path"])
     analysis_sources = list(dict.fromkeys(analysis_sources))
 
+    capture_admission_ready = bool(product_list.get("capture_admission_ready"))
     return [
         {
             "domain": "sales",
@@ -894,21 +901,35 @@ def _build_product_evidence_entries(
                 "存在分页",
                 "spenum 精确搜索可收敛",
                 "已完成 HTTP 回证",
+                *(
+                    ["空 warecause 顺序翻页已验证全量抓取"]
+                    if full_capture_probe_summary.get("verified_with_empty_warecause")
+                    else []
+                ),
             ],
             "research_map_complete": True,
-            "ingestion_blocked_by_global_gate": True,
-            "mainline_ready": False,
+            "ingestion_blocked_by_global_gate": False,
+            "mainline_ready": capture_admission_ready,
             "blocking_issues": list(product_list.get("blocking_issues") or []),
-            "next_action": "继续确认 warecause 的业务范围；若无额外限制，可按大页尺寸顺序翻页进入首批 capture admit",
-            "current_judgment": "商品主数据候选源（page 顺序翻页成立，spenum 支持精确搜索）",
+            "next_action": (
+                "按推荐大页尺寸顺序翻页进入正式 capture admit，并保留 warecause 为后续过滤语义研究项"
+                if capture_admission_ready
+                else "继续确认空 warecause 是否已覆盖当前账号全量商品数据"
+            ),
+            "current_judgment": (
+                "商品主数据候选源（page 顺序翻页成立，spenum 支持搜索，空 warecause 已验证可覆盖当前账号全量数据）"
+                if capture_admission_ready
+                else "商品主数据候选源（page 顺序翻页成立，spenum 支持精确搜索）"
+            ),
             "capture_strategy": "自动翻页",
             "risk_labels": product_route["risk_labels"],
             "ledger_path": product_route["ledger_path"],
             "analysis_sources": analysis_sources,
-            "capture_admission_ready": bool(product_list.get("capture_admission_ready")),
+            "capture_admission_ready": capture_admission_ready,
             "capture_parameter_plan": dict(product_list.get("capture_parameter_plan") or {}),
             "parameter_semantics": parameter_semantics,
             "pagesize_probe_summary": pagesize_probe_summary,
+            "full_capture_probe_summary": full_capture_probe_summary,
             "search_behavior": search_behavior,
             **product_coverage,
         }

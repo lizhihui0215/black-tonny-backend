@@ -629,14 +629,15 @@ def test_build_api_maturity_board_loads_product_capture_runtime_state(tmp_path: 
             {
                 "product_list": {
                     "endpoint": "SelWareList",
-                    "blocking_issues": ["warecause 语义仍待确认"],
-                    "capture_admission_ready": False,
+                    "blocking_issues": [],
+                    "capture_admission_ready": True,
                     "capture_parameter_plan": {
                         "default_spenum": "",
                         "default_warecause": "",
                         "baseline_page": 1,
                         "recommended_pagesize": 5000,
                         "page_mode": "sequential_pagination",
+                        "full_capture_with_empty_warecause": True,
                     },
                         "parameter_semantics": {
                             "page": {"semantics": "pagination_page_switch"},
@@ -646,6 +647,11 @@ def test_build_api_maturity_board_loads_product_capture_runtime_state(tmp_path: 
                         "tested_page_sizes": [60, 100, 1000, 5000],
                         "recommended_pagesize": 5000,
                         "service_cap_detected": False,
+                    },
+                    "full_capture_probe_summary": {
+                        "declared_total_count": 12125,
+                        "observed_total_rows": 12125,
+                        "verified_with_empty_warecause": True,
                     },
                     "search_behavior": {
                         "exact_match_values": ["TLX1B90343B"],
@@ -658,7 +664,7 @@ def test_build_api_maturity_board_loads_product_capture_runtime_state(tmp_path: 
         ),
     )
     _write(
-        analysis_root / "product-capture-research-20260322-000500.json",
+        analysis_root / "product-capture-admission-20260322-000500.json",
         json.dumps(
             {
                 "capture_batch_id": "product-batch-001",
@@ -673,12 +679,13 @@ def test_build_api_maturity_board_loads_product_capture_runtime_state(tmp_path: 
 
     assert routes["商品资料 / SelWareList"]["stage"] == "已HTTP回证"
     assert routes["商品资料 / SelWareList"]["reliability_status"] == "中等可信"
-    assert routes["商品资料 / SelWareList"]["capture_admission_ready"] is False
+    assert routes["商品资料 / SelWareList"]["capture_admission_ready"] is True
     assert routes["商品资料 / SelWareList"]["capture_parameter_plan"]["recommended_pagesize"] == 5000
-    assert routes["商品资料 / SelWareList"]["blocking_issues"] == ["warecause 语义仍待确认"]
+    assert routes["商品资料 / SelWareList"]["blocking_issues"] == []
+    assert routes["商品资料 / SelWareList"]["mainline_ready"] is True
     assert routes["商品资料 / SelWareList"]["capture_written_once"] is True
     assert routes["商品资料 / SelWareList"]["latest_capture_batch_id"] == "product-batch-001"
-    assert routes["商品资料 / SelWareList"]["latest_capture_mode"] == "research"
+    assert routes["商品资料 / SelWareList"]["latest_capture_mode"] == "admission"
 
 
 def test_build_api_maturity_board_loads_customer_capture_runtime_state(tmp_path: Path):

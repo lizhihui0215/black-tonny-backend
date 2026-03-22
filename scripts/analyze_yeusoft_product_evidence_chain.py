@@ -40,6 +40,11 @@ PAGESIZE_PROBES = {
     "2000": {"spenum": "", "warecause": "", "page": 1, "pagesize": 2000},
     "5000": {"spenum": "", "warecause": "", "page": 1, "pagesize": 5000},
 }
+FULL_CAPTURE_PROBES = {
+    "1": {"spenum": "", "warecause": "", "page": 1, "pagesize": 5000},
+    "2": {"spenum": "", "warecause": "", "page": 2, "pagesize": 5000},
+    "3": {"spenum": "", "warecause": "", "page": 3, "pagesize": 5000},
+}
 BROAD_SPENUM_PROBES = {
     "TN": {"spenum": "TN", "warecause": "", "page": 1, "pagesize": 60},
     "TOX1": {"spenum": "TOX1", "warecause": "", "page": 1, "pagesize": 60},
@@ -115,6 +120,7 @@ def main() -> int:
 
     page_payloads = _request_payloads(args.transport, PRODUCT_URL, headers, PAGE_PROBES)
     pagesize_payloads = _request_payloads(args.transport, PRODUCT_URL, headers, PAGESIZE_PROBES)
+    full_capture_payloads = _request_payloads(args.transport, PRODUCT_URL, headers, FULL_CAPTURE_PROBES)
     exact_codes = _extract_exact_codes(baseline_payload)
     exact_probes = {
         code: {"spenum": code, "warecause": "", "page": 1, "pagesize": 60}
@@ -132,6 +138,7 @@ def main() -> int:
         product_page_payloads=page_payloads,
         product_pagesize_payloads=pagesize_payloads,
         product_spenum_payloads=spenum_payloads,
+        product_full_capture_payloads=full_capture_payloads,
     )
 
     output = {
@@ -141,6 +148,7 @@ def main() -> int:
         "baseline_payload": BASELINE_PAYLOAD,
         "page_probes": PAGE_PROBES,
         "pagesize_probes": PAGESIZE_PROBES,
+        "full_capture_probes": FULL_CAPTURE_PROBES,
         "spenum_probe_keys": list(BROAD_SPENUM_PROBES) + exact_codes,
         **evidence,
     }

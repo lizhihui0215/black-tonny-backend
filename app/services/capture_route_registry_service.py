@@ -33,7 +33,7 @@ CAPTURE_NAME_OVERRIDES: dict[str, tuple[str, bool, str]] = {
     "SelDeptSaleList": ("sales_reconciliation_detail_stats", False, "reconciliation"),
     "库存明细统计 / SelDeptStockWaitList": ("inventory_stock_wait_lines", True, "stock"),
     "出入库单据 / SelOutInStockReport": ("inventory_inout_documents", True, "document"),
-    "商品资料 / SelWareList": ("product_master_records", False, "raw"),
+    "商品资料 / SelWareList": ("product_master_records", True, "master"),
     "客户资料 / SelDeptList": ("customer_master_records", False, "raw"),
     "会员中心 / SelVipInfoList": ("member_profile_records", False, "raw"),
     "会员维护 / 待识别": ("member_maintenance_records", False, "raw"),
