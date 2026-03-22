@@ -371,11 +371,27 @@ def infer_source_kind(title: str) -> str:
     return "待判断"
 
 
+def _is_placeholder_mapping_row(row: Any) -> bool:
+    if not isinstance(row, Mapping):
+        return False
+    if not row:
+        return True
+    return all(value in (None, "", "null") for value in row.values())
+
+
 def _extract_table_data(payload: Any) -> tuple[list[str], list[Any], str]:
     if isinstance(payload, Mapping) and isinstance(payload.get("retdata"), Mapping):
         retdata = payload["retdata"]
         if isinstance(retdata.get("ColumnsList"), list) and isinstance(retdata.get("Data"), list):
             return list(retdata["ColumnsList"]), list(retdata["Data"]), "retdata.ColumnsList+Data"
+        if isinstance(retdata.get("Data"), list):
+            rows = list(retdata["Data"])
+            if str(retdata.get("DataCount") or retdata.get("Count") or "").strip() == "0" and all(
+                _is_placeholder_mapping_row(row) for row in rows
+            ):
+                rows = []
+            columns = list(rows[0].keys()) if rows and isinstance(rows[0], Mapping) else []
+            return columns, rows, "retdata.Data"
 
     if isinstance(payload, Mapping) and isinstance(payload.get("retdata"), list):
         for item in payload["retdata"]:
@@ -387,6 +403,10 @@ def _extract_table_data(payload: Any) -> tuple[list[str], list[Any], str]:
                 return columns, rows, "retdata[].Title+Data"
             if isinstance(item, Mapping) and isinstance(item.get("Data"), list):
                 rows = list(item["Data"])
+                if str(item.get("DataCount") or item.get("Count") or "").strip() == "0" and all(
+                    _is_placeholder_mapping_row(row) for row in rows
+                ):
+                    rows = []
                 columns = list(rows[0].keys()) if rows and isinstance(rows[0], Mapping) else []
                 return columns, rows, "retdata[].Data"
 
@@ -519,8 +539,27 @@ def _collect_sales_tokens(values: Sequence[str]) -> list[str]:
 
 
 def analyze_response_payload(payload: Any, *, sample_path: str | None = None) -> dict[str, Any]:
+    error_code = None
+    error_message = None
+    if isinstance(payload, Mapping) and isinstance(payload.get("raw_text"), str):
+        return analyze_response_payload(payload["raw_text"], sample_path=sample_path)
+    if isinstance(payload, str):
+        stripped = payload.strip()
+        if stripped.startswith("{") or stripped.startswith("["):
+            try:
+                return analyze_response_payload(json.loads(stripped), sample_path=sample_path)
+            except Exception:
+                errcode_match = re.search(r'"errcode"\s*:\s*"([^"]*)"', stripped)
+                errmsg_match = re.search(r'"errmsg"\s*:\s*"([^"]*)"', stripped)
+                if errcode_match:
+                    error_code = errcode_match.group(1)
+                if errmsg_match:
+                    error_message = errmsg_match.group(1)
     columns, rows, shape = _extract_table_data(payload)
     field_stats = _field_stats(columns, rows)
+    if isinstance(payload, Mapping):
+        error_code = payload.get("errcode") or payload.get("error_code") or payload.get("code")
+        error_message = payload.get("errmsg") or payload.get("error_message") or payload.get("message")
     result = {
         "response_shape": shape,
         "row_count": len(rows),
@@ -533,6 +572,8 @@ def analyze_response_payload(payload: Any, *, sample_path: str | None = None) ->
         "normalized_tokens": _collect_sales_tokens(columns),
         "cost_fields": field_stats["cost_fields"],
         "price_fields": field_stats["price_fields"],
+        "error_code": error_code,
+        "error_message": error_message,
     }
     if sample_path is not None:
         result["sample_path"] = sample_path

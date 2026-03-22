@@ -6,7 +6,7 @@ backend 侧不重复维护完整的 Dashboard 演进叙事。
 
 如果需要了解 Dashboard 主线已经演进到哪一步、当前边界是什么、下一步建议怎么推进，请优先阅读前端仓库中的主文档：
 
-- `black-tonny-frontend/docs/dashboard/07-evolution-log.md`
+- [black-tonny-frontend/docs/dashboard/evolution-log.md（workspace 链接）](../../../black-tonny-frontend/docs/dashboard/evolution-log.md)
 
 ---
 
@@ -16,7 +16,7 @@ backend 侧只把以下两类文档作为自己的核心依据：
 
 ### 2.1 接口契约
 
-- `docs/dashboard/03-summary-api.md`
+- [docs/dashboard/summary-api.md](./summary-api.md)
 
 用于定义：
 
@@ -27,7 +27,7 @@ backend 侧只把以下两类文档作为自己的核心依据：
 
 ### 2.2 数据架构
 
-- `docs/two-database-architecture.md`
+- [docs/two-database-architecture.md](../two-database-architecture.md)
 
 用于定义：
 
@@ -44,10 +44,10 @@ backend 侧只把以下两类文档作为自己的核心依据：
 
 建议阅读顺序：
 
-1. 先看前端主文档 `black-tonny-frontend/docs/dashboard/07-evolution-log.md`
-2. 再看 backend 的 `docs/dashboard/03-summary-api.md`
-3. 再看 `docs/dashboard/08-summary-capture-mapping.md`
-4. 最后看 `docs/two-database-architecture.md`
+1. 先看前端主文档 [black-tonny-frontend/docs/dashboard/evolution-log.md（workspace 链接）](../../../black-tonny-frontend/docs/dashboard/evolution-log.md)
+2. 再看 backend 的 [docs/dashboard/summary-api.md](./summary-api.md)
+3. 再看 [docs/dashboard/summary-capture-mapping.md](./summary-capture-mapping.md)
+4. 最后看 [docs/two-database-architecture.md](../two-database-architecture.md)
 
 这样可以把：
 

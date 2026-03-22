@@ -163,6 +163,7 @@
 
 - [ERP API 成熟度总览](./api-maturity-board.md)
 - [ERP Capture 全量导入路线图](./capture-ingestion-roadmap.md)
+- [ERP Capture 路线注册表](./capture-route-registry.md)
 - [销售域台账](./sales-ledger.md)
 - [库存域台账](./inventory-ledger.md)
 - [会员域台账](./member-ledger.md)
@@ -189,244 +190,48 @@
 
 ---
 
-## 7. 研究辅助工具
+## 7. 研究工具入口
 
-当前已经提供一个样本分析脚本，用来自动扫描：
+ERP 业务文档只负责解释：
 
-- 请求里的日期、组织、搜索、枚举、分页和 DIY 上下文字段
-- 样本响应里的行数、列数
-- 成本字段是否存在
-- 吊牌价 / 零售价字段是否存在
-- 当前接口建议的抓取策略和风险标签
+- 接口语义
+- 可信度
+- 主链准入边界
+- 当前推进顺序
 
-运行方式：
+通用工具说明已经拆到：
 
-```bash
-python3 scripts/analyze_yeusoft_report_samples.py
-```
+- [工具文档入口](../tooling/README.md)
+- [MCP 使用说明](../tooling/mcp-guide.md)
+- [浏览器研究工具说明](../tooling/browser-research-tools.md)
 
-默认输出到：
-
-- `tmp/capture-samples/analysis/report-matrix-*.json`
-
-这份输出适合作为后续：
-
-- 过滤条件探索
-- 分页策略补齐
-- 角色差异审计
-- capture 主链接口优先级排序
-
-的基础输入。
-
-当前还新增了一条探索模式，直接复用主抓取脚本：
-
-```bash
-python3 scripts/fetch_yeusoft_report_payloads.py --mode explore --explore-target sales_inventory
-```
-
-这条模式当前只先覆盖销售域和库存域的第一批高价值接口：
-
-- `销售清单`
-- `零售明细统计`
-- `库存明细统计`
-- `出入库单据`
-
-当前还新增了一条销售主线证据闭环分析脚本：
-
-```bash
-.venv/bin/python scripts/analyze_yeusoft_sales_evidence_chain.py
-```
-
-这条脚本会把三条销售路线收成一份结构化证据：
-
-- `SelSaleReport`：订单头候选源
-- `GetDIYReportData(menuid=E004001008, gridid=_2)`：明细行候选源
-- `SelDeptSaleList`：研究/对账源
-- `sales_reverse_document_lines`：逆向明细研究留痕路线
-
-- 默认输出到：
-  - `tmp/capture-samples/analysis/sales-evidence-chain-*.json`
-
-- 并自动产出：
-  - 头/行候选关联统计
-  - `parameter.Tiem / BeginDate / EndDate / Depart` 的 HTTP 回证语义
-  - `SelDeptSaleList` 的分页差异与对账摘要
-  - `capture_admission`，用于判断正常销售两条路线是否已具备首批 capture 准入条件
-  - `issue_flags`，用于持续标记尚未收口的问题
-
-当前还新增了一条销售首批 capture 准入脚本：
-
-```bash
-.venv/bin/python scripts/admit_yeusoft_sales_capture.py
-```
-
-这条脚本会：
-
-- 纯 HTTP fresh 抓取 `SelSaleReport` 与 `GetDIYReportData(E004001008_2)`
-- 以 `sale_no` 为唯一主关联键，把销售明细拆成：
-  - `sales_documents_head`
-  - `sales_document_lines`
-  - `sales_reverse_document_lines`
-- 把正常销售路线写入 capture
-- 把逆向路线只做研究留痕，不推进 `serving`
-
-当前还新增了一条菜单覆盖审计脚本：
-
-```bash
-.venv/bin/python scripts/run_yeusoft_menu_coverage_audit.py \
-  --headless \
-  --skip-screenshots
-```
-
-这条脚本会：
-
-- 导出当前账号完整菜单树
-- 审计每个可点击页面是否能成功打开
-- 标记 `covered / visible_but_untracked / visible_but_failed / container_only`
-- 把 unknown page 作为占位 route 补回状态板
-- 默认输出到：
-  - `tmp/capture-samples/analysis/menu-coverage-audit-*.json`
-
-当前也支持直接补齐菜单覆盖审计里发现的 unknown page 基线：
-
-```bash
-.venv/bin/python scripts/run_yeusoft_page_research.py \
-  --headless \
-  --skip-screenshots \
-  --unknown-pages-only
-```
-
-这条命令会把最新 `menu-coverage-audit-*.json` 里的 `visible_but_untracked` 页面并入研究 runner。跑完后再重跑菜单覆盖审计和状态板，就可以把 unknown 占位项替换成真实路线。
-
-页面研究链的第二轮单变量深挖入口是：
-
-```bash
-.venv/bin/python scripts/run_yeusoft_page_research.py \
-  --headless \
-  --skip-screenshots \
-  --probe-target sales_inventory
-```
-
-当前这条研究链已经能直接产出：
-
-- `baseline_request_signature`
-- `single_variable_probe_results`
-- `parameter_semantics`
-- `grain_route`
-- `candidate_join_keys`
-
-页面研究第一轮目前已经改成“真实父页面 + 变体别名”模型：
-
-- 样本/截图中的分析变体页会保留研究标题
-- 实际打开线上真实菜单页
-- 再在 manifest 中记录变体标签和真实菜单落点
-
-这样可以提高基线覆盖率，同时避免把截图里的变体名误当成线上真实菜单项。
-
----
-
-## 8. 页面研究链
-
-除了纯 HTTP 抓取和样本分析，现在还补了一条浏览器研究链，用来做：
-
-- 菜单到接口映射
-- 页面动作到参数变化映射
-- 多 grid / 多粒度页面判定
-- 页面证据链沉淀
-
-它只用于研究，不进入正式定时抓取主链。
-
-运行入口：
-
-```bash
-.venv/bin/python scripts/run_yeusoft_page_research.py
-```
-
-后处理入口：
-
-```bash
-.venv/bin/python scripts/postprocess_yeusoft_page_research.py
-```
-
-详细说明见：
+Yeusoft 专项浏览器研究流程继续看：
 
 - [页面研究运行说明](./page-research-runbook.md)
 
-默认行为是：
+当前常用研究脚本包括：
 
-- 先探测
-- 不默认写 `capture`
-- 结果落到 `tmp/capture-samples/exploration/`
+- `python3 scripts/analyze_yeusoft_report_samples.py`
+- `python3 scripts/fetch_yeusoft_report_payloads.py --mode explore --explore-target sales_inventory`
+- `.venv/bin/python scripts/analyze_yeusoft_sales_evidence_chain.py`
+- `.venv/bin/python scripts/build_erp_api_maturity_board.py`
 
-如果确实需要把探索请求一并留痕到 `capture`，再显式加：
+这些脚本的作用分别是：
 
-```bash
---persist-detection
-```
+- 样本结构分析
+- 销售 / 库存探索模式
+- 销售主线证据闭环
+- 状态板重建
 
-如果要专项确认销售菜单在“按单据 / 按明细”两种粒度下的字段差异，可以直接运行：
+默认 analysis 产物继续输出到：
 
-```bash
-python3 scripts/analyze_yeusoft_sales_menu_grains.py
-```
+- `tmp/capture-samples/analysis/`
 
-默认输出到：
+如果要继续执行 Yeusoft 专项浏览器研究、菜单覆盖审计或页面研究后处理，直接看：
 
-- `tmp/capture-samples/analysis/sales-menu-grain-*.json`
+- [页面研究运行说明](./page-research-runbook.md)
 
-它会同批抓取：
+如果要确认当前路线做到哪里、还能不能进主链，直接回到：
 
-- `menuid=E004001008, gridid=_1` 的 grid 定义
-- `menuid=E004001008, gridid=_2` 的 grid 定义
-- `SelSaleReport` 的按单据数据
-- 当前 `销售清单(gridid=_2)` 的按明细数据
-
-并自动给出：
-
-- 哪条更像单据头候选源
-- 哪条更像明细行候选源
-- 哪些字段可作为头行关联键候选
-
----
-
-## 8. 大页尺寸探测
-
-在不改变正式抓取主链的前提下，当前探索模式已经支持“首屏大 `pagesize` 探测”。
-
-默认候选值固定为：
-
-- `20`
-- `100`
-- `1000`
-- `10000`
-- `0`
-
-默认只比较首屏，不和完整翻页逻辑混跑，所以这层结论只用于研究：
-
-- 大 `pagesize` 是否真的增加返回数据
-- `0` 是否等于全量
-- 某接口是否存在“参数被接受但结果没变化”
-
-推荐命令：
-
-```bash
-python3 scripts/fetch_yeusoft_report_payloads.py --mode explore --explore-target sales_inventory
-```
-
-如果要做更激进的边缘试探，可以显式追加更大的 size：
-
-```bash
-python3 scripts/fetch_yeusoft_report_payloads.py \
-  --mode explore \
-  --explore-target sales_inventory \
-  --edge-page-size 50000 \
-  --edge-page-size 100000
-```
-
-注意：
-
-- 这些更大的 size 只作为研究参数
-- 不会一上来就全部执行
-- 只有当默认首屏探测发现 `10000` 或 `0` 已经命中 `10000` 行阈值时，才会继续触发这些 edge size
-- 不会自动回写正式抓取器
-- 只有当结果稳定后，才会单独评估是否把更优的第一页大小引入主链
+- [ERP API 成熟度总览](./api-maturity-board.md)
+- [ERP Capture 全量导入路线图](./capture-ingestion-roadmap.md)

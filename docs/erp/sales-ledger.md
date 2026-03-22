@@ -17,8 +17,8 @@
 | 零售明细统计 | `YisEposReport/SelDeptSaleList` | `POST` | `token` | `bdate` `edate` `depts` `spenum` `warecause` `page` `pagesize` | 更像销售明细结果接口，可作为销售域候选源 | 需要翻页 | 自动翻页 |
 | 店铺零售清单 | `FXDIYReport/GetDIYReportData` | `POST` | `token` | `menuid` `gridid` `parameter.WareClause` `Depart` `BeginDate` `EndDate` `Operater` `Tiem` | DIY 明细表，强依赖菜单配置 | 需要扫枚举 | 暂不采纳 |
 | 销售清单 | `FXDIYReport/GetDIYReportData` | `POST` | `token` | `menuid` `gridid` `parameter.BeginDate` `EndDate` `Depart` `Operater` `Tiem` `WareClause` | 当前最接近销售明细源，且字段最丰富 | 需要扫枚举 | 单请求 |
-| 商品资料 | `待识别` | `页面基线` | `浏览器研究` | `待补页面查询条件` | 当前更像商品主数据页，已完成页面基线 | 主接口待识别 | 单请求 |
-| 客户资料 | `GetControlData` | `页面基线` | `浏览器研究` | `待补页面查询条件` | 当前更像客户主数据页，已完成页面基线，但稳定主接口仍待识别 | 主接口待识别 | 待识别 |
+| 商品资料 | `YisEposWareList/SelWareList` | `POST` | `token` | `spenum` `warecause` `page` `pagesize` | 当前更像商品主数据页，已确认 `page` 为顺序翻页、`spenum` 支持精确收敛，主接口为 `SelWareList`；`warecause` 语义仍待确认 | 需要翻页 | 自动翻页 |
+| 客户资料 | `YisEposDeptClientSet/SelDeptList` | `POST` | `token` | `deptname` `page` `pagesize` | 当前更像客户主数据页，已确认主接口为 `SelDeptList`；当前账号 baseline 为空数据集 | 需要翻页 | 自动翻页 |
 | 商品销售情况 | `YisEposReport/SelSaleReportData` | `POST` | `token` | `bdate` `edate` `warecause` `spenum` | 更像商品维度聚合结果 | 只能当结果快照 | 结果快照 |
 | 门店销售月报 | `JyApi/DeptMonthSalesReport/DeptMonthSalesReport` | `POST` | `Authorization` | `Type` `BeginDate` `EndDate` `YBeginDate` `YEndDate` `MBeginDate` `MEndDate` `PageIndex` `PageSize` | 月报结果接口，不宜直接当明细源 | 需要翻页 | 结果快照 |
 

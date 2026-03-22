@@ -21,6 +21,7 @@ from app.services.yeusoft_page_research_service import (
     INTERACTIVE_TEXT_SELECTOR,
     SECOND_ROUND_PROBE_TARGETS,
     build_menu_lookup,
+    build_menu_coverage_registry_entries,
     build_unknown_page_registry_entries,
     build_page_manifest_summary,
     build_single_variable_probe_cases,
@@ -50,6 +51,14 @@ NETWORK_WAIT_MS = 2500
 
 def now_local() -> datetime:
     return datetime.now(LOCAL_TZ)
+
+
+def should_capture_network_url(url: str, *, capture_all_network: bool) -> bool:
+    if is_interesting_endpoint(url):
+        return True
+    if not capture_all_network:
+        return False
+    return "yeusoft.net/" in url and any(segment in url for segment in ("/JyApi/", "/eposapi/", "/FxErpApi/"))
 
 
 def safe_json_dump(path: Path, payload: Any) -> None:
@@ -442,13 +451,14 @@ def click_query_button(frame) -> bool:
 
 
 class NetworkCollector:
-    def __init__(self, page, page_dir: Path):
+    def __init__(self, page, page_dir: Path, *, capture_all_network: bool = False):
         self.page = page
         self.page_dir = page_dir
         self.network_dir = page_dir / "network"
         self.network_dir.mkdir(parents=True, exist_ok=True)
         self.requests: list[dict[str, Any]] = []
         self.responses: list[dict[str, Any]] = []
+        self.capture_all_network = capture_all_network
         self._request_id_counter = 0
         self._request_map: dict[int, int] = {}
         self.current_action_key = "bootstrap"
@@ -488,7 +498,7 @@ class NetworkCollector:
 
     def _on_request(self, request) -> None:
         url = str(read_member(request, "url", ""))
-        if not is_interesting_endpoint(url):
+        if not should_capture_network_url(url, capture_all_network=self.capture_all_network):
             return
         self._request_id_counter += 1
         request_id = self._request_id_counter
@@ -510,7 +520,7 @@ class NetworkCollector:
 
     def _on_response(self, response) -> None:
         url = str(read_member(response, "url", ""))
-        if not is_interesting_endpoint(url):
+        if not should_capture_network_url(url, capture_all_network=self.capture_all_network):
             return
         response_request = read_member(response, "request")
         request_id = self._request_map.get(id(response_request))
@@ -532,7 +542,7 @@ class NetworkCollector:
             safe_json_dump(body_path, body)
         else:
             body_path.write_text(str(body), "utf-8")
-        response_summary = analyze_response_payload(body) if suffix == "json" else None
+        response_summary = analyze_response_payload(body) if suffix == "json" else analyze_response_payload(str(body))
         self.responses.append(
             {
                 "id": response_id,
@@ -648,10 +658,11 @@ def research_single_page(
     end_date: str,
     skip_screenshots: bool,
     probe_target: str | None,
+    capture_all_network: bool,
 ) -> dict[str, Any]:
     page_dir = run_dir / entry.slug
     page_dir.mkdir(parents=True, exist_ok=True)
-    collector = NetworkCollector(page, page_dir)
+    collector = NetworkCollector(page, page_dir, capture_all_network=capture_all_network)
     manifest: dict[str, Any] = {
         "page": entry.as_dict(),
         "run_context": {
@@ -801,6 +812,7 @@ def main() -> int:
     parser.add_argument("--unknown-pages-only", action="store_true", help="只跑最新菜单覆盖审计里的 visible_but_untracked 页面")
     parser.add_argument("--headless", action="store_true", help="使用 headless 运行")
     parser.add_argument("--skip-screenshots", action="store_true", help="跳过页面截图")
+    parser.add_argument("--capture-all-network", action="store_true", help="记录所有 Yeusoft API 请求，仅用于定向页面研究")
     args = parser.parse_args()
 
     sync_playwright, _ = import_playwright()
@@ -820,6 +832,25 @@ def main() -> int:
         registry = [entry for entry in registry if entry.title in target_titles]
     if args.only:
         wanted = {title.strip() for title in args.only if title.strip()}
+        missing_titles = {
+            title
+            for title in wanted
+            if not any(
+                title in {entry.title, entry.canonical_name, entry.menu_target_title}
+                for entry in registry
+            )
+        }
+        if missing_titles:
+            _, menu_coverage_payload = load_latest_menu_coverage_audit(Path(args.analysis_root))
+            if menu_coverage_payload:
+                registry = [
+                    *registry,
+                    *build_menu_coverage_registry_entries(
+                        menu_coverage_payload,
+                        existing_registry=registry,
+                        only_titles=sorted(missing_titles),
+                    ),
+                ]
         registry = [
             entry
             for entry in registry
@@ -840,8 +871,7 @@ def main() -> int:
             viewport={"width": 1440, "height": 1200},
         )
         try:
-            pages = read_member(context, "pages", [])
-            page = pages[0] if pages else context.new_page()
+            page = context.new_page()
             page.goto(args.site_url, wait_until="domcontentloaded", timeout=60000)
             page.wait_for_timeout(2500)
             auth = ensure_login_ready(page, interactive=not args.headless)
@@ -861,11 +891,12 @@ def main() -> int:
                         frame=frame,
                         menu_lookup=menu_lookup,
                         run_dir=run_dir,
-                        start_date=args.start_date,
-                        end_date=args.end_date,
-                        skip_screenshots=args.skip_screenshots,
-                        probe_target=args.probe_target,
-                    )
+                start_date=args.start_date,
+                end_date=args.end_date,
+                skip_screenshots=args.skip_screenshots,
+                probe_target=args.probe_target,
+                capture_all_network=args.capture_all_network,
+            )
                 )
             run_index = {
                 "generated_at": now_local().isoformat(),

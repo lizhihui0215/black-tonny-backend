@@ -75,8 +75,12 @@ class BoardSourceFiles:
     page_research_files: tuple[Path, ...]
     sales_evidence: Path | None
     inventory_evidence: Path | None
+    return_detail_evidence: Path | None
+    member_evidence: Path | None
+    product_evidence: Path | None
     inventory_outin_research: Path | None
     menu_coverage_audit: Path | None
+    capture_runtime_files: tuple[Path, ...]
 
 
 def _repo_path(path: Path, repo_root: Path) -> str:
@@ -262,10 +266,92 @@ def load_inventory_evidence(analysis_root: Path) -> tuple[Path | None, dict[str,
     return path, payload
 
 
+def load_return_detail_evidence(analysis_root: Path) -> tuple[Path | None, dict[str, Any] | None]:
+    path = _latest_json(analysis_root, "return-detail-evidence-chain-*.json")
+    payload = _load_json(path)
+    return path, payload
+
+
+def load_member_evidence(analysis_root: Path) -> tuple[Path | None, dict[str, Any] | None]:
+    path = _latest_json(analysis_root, "member-evidence-chain-*.json")
+    payload = _load_json(path)
+    return path, payload
+
+
+def load_product_evidence(analysis_root: Path) -> tuple[Path | None, dict[str, Any] | None]:
+    path = _latest_json(analysis_root, "product-evidence-chain-*.json")
+    payload = _load_json(path)
+    return path, payload
+
+
 def load_inventory_outin_research(analysis_root: Path) -> tuple[Path | None, dict[str, Any] | None]:
     path = _latest_json(analysis_root, "inventory-outin-capture-research-*.json")
     payload = _load_json(path)
     return path, payload
+
+
+def load_capture_runtime_state(
+    repo_root: Path,
+    analysis_root: Path,
+) -> tuple[dict[str, dict[str, Any]], tuple[Path, ...]]:
+    runtime_index: dict[str, dict[str, Any]] = {}
+    files = sorted(
+        path
+        for pattern in (
+            "sales-capture-admission-*.json",
+            "inventory-stock-capture-admission-*.json",
+            "inventory-outin-capture-research-*.json",
+            "inventory-outin-capture-admission-*.json",
+            "member-capture-research-*.json",
+            "product-capture-research-*.json",
+            "customer-capture-research-*.json",
+        )
+        for path in analysis_root.glob(pattern)
+    )
+
+    def _register(route: str, *, mode: str, payload: dict[str, Any], path: Path) -> None:
+        capture_batch_id = payload.get("capture_batch_id")
+        if not capture_batch_id:
+            return
+        runtime_index[route] = {
+            "capture_written_once": True,
+            "latest_capture_batch_id": str(capture_batch_id),
+            "latest_capture_mode": mode,
+            "latest_capture_artifact": _repo_path(path, repo_root),
+            "latest_capture_source_endpoint": payload.get("source_endpoint")
+            or payload.get("document_source_endpoint")
+            or payload.get("detail_source_endpoint"),
+        }
+
+    for path in files:
+        payload = _load_json(path)
+        if not isinstance(payload, dict):
+            continue
+        filename = path.name
+        if filename.startswith("sales-capture-admission-"):
+            _register("SelSaleReport", mode="admission", payload=payload, path=path)
+            _register("GetDIYReportData(E004001008_2)", mode="admission", payload=payload, path=path)
+            _register("sales_reverse_document_lines", mode="research", payload=payload, path=path)
+            continue
+        if filename.startswith("inventory-stock-capture-admission-"):
+            _register("库存明细统计 / SelDeptStockWaitList", mode="admission", payload=payload, path=path)
+            continue
+        if filename.startswith("inventory-outin-capture-admission-"):
+            _register("出入库单据 / SelOutInStockReport", mode="admission", payload=payload, path=path)
+            continue
+        if filename.startswith("inventory-outin-capture-research-") and "出入库单据 / SelOutInStockReport" not in runtime_index:
+            _register("出入库单据 / SelOutInStockReport", mode="research", payload=payload, path=path)
+            continue
+        if filename.startswith("member-capture-research-"):
+            _register("会员中心 / SelVipInfoList", mode="research", payload=payload, path=path)
+            continue
+        if filename.startswith("product-capture-research-"):
+            _register("商品资料 / SelWareList", mode="research", payload=payload, path=path)
+            continue
+        if filename.startswith("customer-capture-research-"):
+            _register("客户资料 / SelDeptList", mode="research", payload=payload, path=path)
+
+    return runtime_index, tuple(files)
 
 
 def _short_endpoint(endpoint: str) -> str:
@@ -698,6 +784,137 @@ def _build_inventory_evidence_entries(
     return [detail_entry, outin_entry]
 
 
+def _build_member_evidence_entries(
+    *,
+    member_evidence: dict[str, Any],
+    routes_by_title: dict[str, dict[str, Any]],
+    page_records: dict[str, dict[str, Any]],
+    menu_coverage_index: dict[str, dict[str, Any]],
+    repo_root: Path,
+    member_evidence_path: Path,
+) -> list[dict[str, Any]]:
+    member_route = routes_by_title["会员中心"]
+    member_page = resolve_page_research_record("会员中心", page_records)
+    member_coverage = _coverage_metadata(resolve_menu_coverage_page("会员中心", menu_coverage_index))
+    member_center = dict((member_evidence.get("member_center") or {}))
+    parameter_semantics = dict((member_center.get("parameter_semantics") or {}))
+    condition_probe_summary = dict((member_center.get("condition_probe_summary") or {}))
+    search_behavior = dict((member_center.get("search_behavior") or {}))
+    analysis_sources = [_repo_path(member_evidence_path, repo_root)]
+    if member_page:
+        analysis_sources.append(member_page["_source_path"])
+    analysis_sources = list(dict.fromkeys(analysis_sources))
+
+    return [
+        {
+            "domain": "member",
+            "domain_label": "会员",
+            "route": "会员中心 / SelVipInfoList",
+            "title": "会员中心",
+            "endpoint": member_route["endpoint"],
+            "role": "主源候选",
+            "source_kind": "主源候选",
+            "stage": "已HTTP回证",
+            "trust_level": "中",
+            "reliability_status": "中等可信",
+            "coverage_scope": [
+                "当前账号范围",
+                "会员主数据候选",
+                "默认空查询返回全量会员集合",
+                "已完成 HTTP 回证",
+            ],
+            "research_map_complete": True,
+            "ingestion_blocked_by_global_gate": True,
+            "mainline_ready": False,
+            "blocking_issues": list(member_center.get("blocking_issues") or []),
+            "next_action": "继续从页面控件或接口上下文反推 condition 合法值，并确认是否存在服务端上限，再评估 capture 准入",
+            "current_judgment": "会员主数据候选源（空查询可直接返回会员集合，searchval 可用于全局过滤）",
+            "capture_strategy": "单请求",
+            "risk_labels": member_route["risk_labels"],
+            "ledger_path": member_route["ledger_path"],
+            "analysis_sources": analysis_sources,
+            "capture_admission_ready": bool(member_center.get("capture_admission_ready")),
+            "capture_parameter_plan": {
+                "default_condition": "",
+                "default_searchval": "",
+                "default_VolumeNumber": "",
+                "search_mode": "global_filter_when_condition_empty",
+                "search_exact_examples": list(search_behavior.get("exact_match_values") or []),
+                "volume_examples": [
+                    item.get("value")
+                    for item in (parameter_semantics.get("VolumeNumber") or {}).get("variants", [])
+                ],
+            },
+            "parameter_semantics": parameter_semantics,
+            "condition_probe_summary": condition_probe_summary,
+            "search_behavior": search_behavior,
+            **member_coverage,
+        }
+    ]
+
+
+def _build_product_evidence_entries(
+    *,
+    product_evidence: dict[str, Any],
+    routes_by_title: dict[str, dict[str, Any]],
+    page_records: dict[str, dict[str, Any]],
+    menu_coverage_index: dict[str, dict[str, Any]],
+    repo_root: Path,
+    product_evidence_path: Path,
+) -> list[dict[str, Any]]:
+    product_route = routes_by_title.get("商品资料")
+    if product_route is None:
+        return []
+    product_page = resolve_page_research_record("商品资料", page_records)
+    product_coverage = _coverage_metadata(resolve_menu_coverage_page("商品资料", menu_coverage_index))
+    product_list = dict((product_evidence.get("product_list") or {}))
+    parameter_semantics = dict((product_list.get("parameter_semantics") or {}))
+    pagesize_probe_summary = dict((product_list.get("pagesize_probe_summary") or {}))
+    search_behavior = dict((product_list.get("search_behavior") or {}))
+    analysis_sources = [_repo_path(product_evidence_path, repo_root)]
+    if product_page:
+        analysis_sources.append(product_page["_source_path"])
+    analysis_sources = list(dict.fromkeys(analysis_sources))
+
+    return [
+        {
+            "domain": "sales",
+            "domain_label": "销售",
+            "route": "商品资料 / SelWareList",
+            "title": "商品资料",
+            "endpoint": product_route["endpoint"],
+            "role": "主源候选",
+            "source_kind": "主源候选",
+            "stage": "已HTTP回证",
+            "trust_level": "中",
+            "reliability_status": "中等可信",
+            "coverage_scope": [
+                "当前账号范围",
+                "商品主数据候选",
+                "存在分页",
+                "spenum 精确搜索可收敛",
+                "已完成 HTTP 回证",
+            ],
+            "research_map_complete": True,
+            "ingestion_blocked_by_global_gate": True,
+            "mainline_ready": False,
+            "blocking_issues": list(product_list.get("blocking_issues") or []),
+            "next_action": "继续确认 warecause 的业务范围；若无额外限制，可按大页尺寸顺序翻页进入首批 capture admit",
+            "current_judgment": "商品主数据候选源（page 顺序翻页成立，spenum 支持精确搜索）",
+            "capture_strategy": "自动翻页",
+            "risk_labels": product_route["risk_labels"],
+            "ledger_path": product_route["ledger_path"],
+            "analysis_sources": analysis_sources,
+            "capture_admission_ready": bool(product_list.get("capture_admission_ready")),
+            "capture_parameter_plan": dict(product_list.get("capture_parameter_plan") or {}),
+            "parameter_semantics": parameter_semantics,
+            "pagesize_probe_summary": pagesize_probe_summary,
+            "search_behavior": search_behavior,
+            **product_coverage,
+        }
+    ]
+
+
 def _build_unknown_page_entries(
     menu_coverage_payload: dict[str, Any] | None,
     *,
@@ -748,6 +965,23 @@ def _build_unknown_page_entries(
             }
         )
     return entries
+
+
+def _with_capture_runtime(
+    entries: list[dict[str, Any]],
+    capture_runtime_index: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for entry in entries:
+        runtime = capture_runtime_index.get(entry["route"]) or {}
+        enriched_entry = dict(entry)
+        enriched_entry["capture_written_once"] = bool(runtime.get("capture_written_once"))
+        enriched_entry["latest_capture_batch_id"] = runtime.get("latest_capture_batch_id")
+        enriched_entry["latest_capture_mode"] = runtime.get("latest_capture_mode")
+        enriched_entry["latest_capture_artifact"] = runtime.get("latest_capture_artifact")
+        enriched_entry["latest_capture_source_endpoint"] = runtime.get("latest_capture_source_endpoint")
+        enriched.append(enriched_entry)
+    return enriched
 
 
 def _infer_dynamic_route_source_kind(
@@ -939,7 +1173,11 @@ def _build_route_entries(
     report_matrix_path, _ = load_report_matrix(analysis_root)
     sales_evidence_path, sales_evidence = load_sales_evidence(analysis_root)
     inventory_evidence_path, inventory_evidence = load_inventory_evidence(analysis_root)
+    return_detail_evidence_path, return_detail_evidence = load_return_detail_evidence(analysis_root)
+    member_evidence_path, member_evidence = load_member_evidence(analysis_root)
+    product_evidence_path, product_evidence = load_product_evidence(analysis_root)
     inventory_outin_research_path, inventory_outin_research = load_inventory_outin_research(analysis_root)
+    capture_runtime_index, capture_runtime_files = load_capture_runtime_state(repo_root, analysis_root)
     outin_research_sweep_summary = (
         (((inventory_outin_research or {}).get("summary") or {}).get("outin_report") or {}).get("research_sweep_summary")
         or {}
@@ -964,6 +1202,10 @@ def _build_route_entries(
             continue
         if inventory_admission is not None and route["title"] in {"库存明细统计", "出入库单据"}:
             continue
+        if member_evidence is not None and member_evidence_path is not None and route["title"] == "会员中心":
+            continue
+        if product_evidence is not None and product_evidence_path is not None and route["title"] == "商品资料":
+            continue
         page_record = resolve_page_research_record(route["title"], page_records)
         coverage_page = resolve_menu_coverage_page(route["title"], menu_coverage_index)
         entry = _build_generic_entry(route, page_record, coverage_page)
@@ -985,6 +1227,26 @@ def _build_route_entries(
                 "尚未确认是否存在分页或数量限制",
             ]
             entry["next_action"] = "补 SearchType 枚举和分页限制研究，保持结果快照定位"
+        elif route["title"] == "退货明细":
+            if return_detail_evidence is not None and return_detail_evidence_path is not None:
+                detail = return_detail_evidence.get("return_detail") or {}
+                entry["stage"] = "已HTTP回证"
+                entry["trust_level"] = "低"
+                entry["reliability_status"] = "能跑但不能信"
+                entry["blocking_issues"] = list(detail.get("blocking_issues") or [])
+                entry["next_action"] = str((return_detail_evidence.get("conclusion") or {}).get("next_focus") or entry["next_action"])
+                entry["current_judgment"] = str(detail.get("judgment") or entry["current_judgment"])
+                entry["analysis_sources"] = list(
+                    dict.fromkeys([*entry["analysis_sources"], _repo_path(return_detail_evidence_path, repo_root)])
+                )
+                entry["capture_parameter_plan"] = dict(detail.get("capture_parameter_plan") or {})
+            else:
+                entry["blocking_issues"] = [
+                    "当前默认参数会触发服务端 SQL 截断错误",
+                    "尚未完成 type 合法值集合确认",
+                    "尚未确认页面附加参数是否影响服务端查询",
+                ]
+                entry["next_action"] = "先确认 SelReturnStockList 的 type 参数和页面附加参数，再定位 SQL 截断边界"
         entries.append(entry)
 
     if has_sales_evidence:
@@ -1011,6 +1273,28 @@ def _build_route_entries(
                 inventory_evidence_path=inventory_evidence_path,
             )
         )
+    if member_evidence is not None and member_evidence_path is not None:
+        entries.extend(
+            _build_member_evidence_entries(
+                member_evidence=member_evidence,
+                routes_by_title=routes_by_title,
+                page_records=page_records,
+                menu_coverage_index=menu_coverage_index,
+                repo_root=repo_root,
+                member_evidence_path=member_evidence_path,
+            )
+        )
+    if product_evidence is not None and product_evidence_path is not None:
+        entries.extend(
+            _build_product_evidence_entries(
+                product_evidence=product_evidence,
+                routes_by_title=routes_by_title,
+                page_records=page_records,
+                menu_coverage_index=menu_coverage_index,
+                repo_root=repo_root,
+                product_evidence_path=product_evidence_path,
+            )
+        )
     entries.extend(
         _build_researched_unknown_page_entries(
             page_records=page_records,
@@ -1026,14 +1310,19 @@ def _build_route_entries(
             page_records=page_records,
         )
     )
+    entries = _with_capture_runtime(entries, capture_runtime_index)
 
     sources = BoardSourceFiles(
         report_matrix=report_matrix_path,
         page_research_files=page_files,
         sales_evidence=sales_evidence_path,
         inventory_evidence=inventory_evidence_path,
+        return_detail_evidence=return_detail_evidence_path,
+        member_evidence=member_evidence_path,
+        product_evidence=product_evidence_path,
         inventory_outin_research=inventory_outin_research_path,
         menu_coverage_audit=menu_coverage_path,
+        capture_runtime_files=capture_runtime_files,
     )
     return entries, sources
 
@@ -1096,6 +1385,7 @@ def build_api_maturity_board(repo_root: Path, analysis_root: Path) -> dict[str, 
         "trust_counts": dict(trust_counter),
         "reliability_counts": dict(reliability_counter),
         "mainline_ready_count": sum(1 for entry in entries if entry["mainline_ready"]),
+        "capture_written_once_count": sum(1 for entry in entries if entry.get("capture_written_once")),
         "research_map_complete_count": risk_map_complete_count,
         "global_risk_map_complete": global_risk_map_complete,
         "menu_coverage_audit_complete": menu_coverage_audit_complete,
@@ -1117,8 +1407,12 @@ def build_api_maturity_board(repo_root: Path, analysis_root: Path) -> dict[str, 
         "page_research_files": [_repo_path(path, repo_root) for path in sources.page_research_files],
         "sales_evidence": _repo_path(sources.sales_evidence, repo_root) if sources.sales_evidence else None,
         "inventory_evidence": _repo_path(sources.inventory_evidence, repo_root) if sources.inventory_evidence else None,
+        "return_detail_evidence": _repo_path(sources.return_detail_evidence, repo_root) if sources.return_detail_evidence else None,
+        "member_evidence": _repo_path(sources.member_evidence, repo_root) if sources.member_evidence else None,
+        "product_evidence": _repo_path(sources.product_evidence, repo_root) if sources.product_evidence else None,
         "inventory_outin_research": _repo_path(sources.inventory_outin_research, repo_root) if sources.inventory_outin_research else None,
         "menu_coverage_audit": _repo_path(sources.menu_coverage_audit, repo_root) if sources.menu_coverage_audit else None,
+        "capture_runtime_files": [_repo_path(path, repo_root) for path in sources.capture_runtime_files],
         "ledger_files": [str(relative_path) for _, _, relative_path in LEDGER_SPECS],
     }
 
@@ -1172,6 +1466,7 @@ def render_api_maturity_board_markdown(board: dict[str, Any]) -> str:
             f"- container_only：`{summary['menu_coverage']['container_only_count']}`",
             f"- 全域门槛已达成：`{'是' if summary['global_risk_map_complete'] else '否'}`",
             f"- 已准入主链：`{summary['mainline_ready_count']}`",
+            f"- 已真实写入 capture：`{summary['capture_written_once_count']}`",
             f"- 已 HTTP 回证：`{summary['stage_counts'].get('已HTTP回证', 0)}`",
             f"- 已单变量：`{summary['stage_counts'].get('已单变量', 0)}`",
             f"- 仅基线：`{summary['stage_counts'].get('已基线', 0)}`",
@@ -1208,18 +1503,20 @@ def render_api_maturity_board_markdown(board: dict[str, Any]) -> str:
     for domain_key, domain_label, _ in LEDGER_SPECS:
         lines.append(f"### {domain_label}")
         lines.append("")
-        lines.append("| 路线 | 来源分类 | 阶段 | 风险地图完成 | 覆盖状态 | 可信度 | 全域门槛阻塞 | 主链就绪 | 菜单路径 | 剩余问题 | 下一步 |")
-        lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+        lines.append("| 路线 | 来源分类 | 阶段 | 风险地图完成 | 覆盖状态 | 可信度 | 全域门槛阻塞 | 主链就绪 | 已写capture | 最新batch | 菜单路径 | 剩余问题 | 下一步 |")
+        lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
         for entry in board["entries"]:
             if entry["domain"] != domain_key:
                 continue
             blockers = "；".join(entry["blocking_issues"]) if entry["blocking_issues"] else "-"
             menu_path = " / ".join(entry.get("menu_path") or []) or "-"
+            latest_batch = entry.get("latest_capture_batch_id") or "-"
             lines.append(
                 f"| {entry['route']} | {entry['source_kind']} | {entry['stage']} | "
                 f"{'是' if entry['research_map_complete'] else '否'} | {entry.get('coverage_status', '-')} | {entry['reliability_status']} | "
                 f"{'是' if entry['ingestion_blocked_by_global_gate'] else '否'} | "
-                f"{'是' if entry['mainline_ready'] else '否'} | {menu_path} | {blockers} | {entry['next_action']} |"
+                f"{'是' if entry['mainline_ready'] else '否'} | {'是' if entry.get('capture_written_once') else '否'} | "
+                f"`{latest_batch}` | {menu_path} | {blockers} | {entry['next_action']} |"
             )
         lines.append("")
 

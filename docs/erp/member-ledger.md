@@ -16,7 +16,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 会员总和分析 | `YisEposReport/SelVipAnalysisReport` | `POST` | `token` | `salebdate` `saleedate` `birthbdate` `birthedate` `salemoney1` `salemoney2` `tag` `type` `page` `pagesize` | 会员分析结果接口 | 需要扫枚举 | 结果快照 |
 | 会员消费排行 | `YisEposReport/SelVipSaleRank` | `POST` | `token` | `bdate` `edate` `page` `pagesize` | 排行视图接口 | 需要翻页 | 结果快照 |
-| 会员中心 | `YisEposVipManage/SelVipInfoList` | `POST` | `token` | `condition` `searchval` `VolumeNumber` | 当前最像会员主数据查询接口 | 大概率全量 | 单请求 |
+| 会员中心 | `YisEposVipManage/SelVipInfoList` | `POST` | `token` | `condition` `searchval` `VolumeNumber` | 当前最像会员主数据查询接口，已完成 HTTP 回证 | 大概率全量 | 单请求 |
 | 会员维护 | `待识别` | `页面基线` | `浏览器研究` | `待补页面查询条件` | 当前更像会员主数据维护页，已完成页面基线 | 主接口待识别 | 单请求 |
 | VIP卡折扣管理 | `待识别` | `页面基线` | `浏览器研究` | `默认加载` | 配置页，默认不作为事实主源 | 配置页面 | 暂不采纳 |
 
@@ -44,11 +44,23 @@
 - `searchval`
 - `VolumeNumber`
 
-当前需要重点确认：
+当前已确认：
 
-- 空搜索是否真等于当前账号可见范围内全量会员
-- `condition` 是否是字段类型枚举
-- `VolumeNumber` 是否是额外筛选，不只是展示项
+- `condition=''`、`searchval=''`、`VolumeNumber=''` 会返回当前账号可见范围内的会员集合，最新样本为 `1308` 行
+- `searchval` 在 `condition=''` 时表现为全局过滤
+  - 精确值可把结果收窄到 `1` 行
+  - 宽松值如 `"1"` 可与 baseline 返回同一数据集
+  - 无匹配值会返回 `0` 行
+- `VolumeNumber` 会显著收窄会员集合，不是纯展示项
+  - `1 -> 263`
+  - `2 -> 94`
+  - `10 -> 91`
+
+当前仍需重点确认：
+
+- `condition` 的合法取值集合
+- `VolumeNumber` 的业务语义命名
+- 是否存在服务端隐藏上限或分页
 
 ---
 
@@ -99,5 +111,6 @@
 
 1. `会员中心.condition` 的合法值集合
 2. `会员中心` 是否存在隐藏分页或服务端上限
-3. `会员总和分析.type/tag` 是否是视图切换还是结果筛选
-4. 不同角色账号下会员字段是否存在裁剪差异
+3. `VolumeNumber` 的业务语义命名与正式抓取是否需要纳入
+4. `会员总和分析.type/tag` 是否是视图切换还是结果筛选
+5. 不同角色账号下会员字段是否存在裁剪差异

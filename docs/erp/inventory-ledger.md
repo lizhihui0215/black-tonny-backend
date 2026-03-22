@@ -167,16 +167,30 @@
 
 ### 7.3 第二轮单变量深挖结论
 
+当前还新增了一条库存主线 HTTP 证据闭环脚本：
+
+- 脚本：`scripts/analyze_yeusoft_inventory_evidence_chain.py`
+- 最新输出：`tmp/capture-samples/analysis/inventory-evidence-chain-20260322-174203.json`
+
 - `库存明细统计`
   - 第二轮页面研究确认它的主数据接口仍然是 `SelDeptStockWaitList`
-  - `stockflag=0/1/2` 的单变量 probe 已经形成稳定结论：
-    - `stockflag=0`：`975` 行
+  - 最新 HTTP 证据输出：
+    - `tmp/capture-samples/analysis/inventory-evidence-chain-20260322-184350.json`
+    - `tmp/capture-samples/analysis/inventory-capture-admission-20260322-184314.json`
+  - `stockflag=0/1/2` 的 HTTP probe 已经形成稳定结论：
+    - `stockflag=0`：`974` 行
     - `stockflag=1`：`1548` 行
     - `stockflag=2`：`1548` 行
   - 三个值的列结构保持一致，但 `row_set_signature` 在 `0` 与 `1/2` 间明显不同
   - 当前可以明确把 `stockflag` 判成 `data_subset_or_scope_switch`
-  - 这说明后续正式纯 HTTP 抓取不应把 `stockflag` 当成纯展示参数忽略掉
-  - 在当前账号样本下，`stockflag=1` 与 `stockflag=2` 数据集一致，可以作为后续去重或优先级判断依据
+  - 在当前账号样本下，`stockflag=1` 与 `stockflag=2` 数据集一致，因此当前 capture 候选参数计划已经收成：
+    - `stockflag_values = [0, 1]`
+    - `stockflag=2` 视为与 `1` 等价的重复范围值
+  - `page=0/1` 在纯 HTTP 下当前返回同一数据集
+  - 当前对分页的正式判断已经从“待解释 blocker”收成：
+    - capture 正式抓取固定 `page=0`
+    - `page` 当前不作为库存明细统计主链的正式分页参数
+  - 这条路线现在已经可以进入 `capture candidate`，route 名固定为 `inventory_stock_wait_lines`
 - `出入库单据`
   - 第二轮页面研究确认它的主数据接口仍然是 `SelOutInStockReport`
   - `datetype=1/2` 的单变量 probe 已形成稳定结论：
@@ -185,7 +199,19 @@
   - 两者列结构一致，但数据集不同，当前可明确判成 `data_subset_or_scope_switch`
   - `type=已出库` 单独探测时返回 `158` 行
   - `doctype=1` 单独探测时返回 `74` 行
-  - 由于 `type` 和 `doctype` 当前还只有单值 probe，现阶段仍记为 `needs_followup`，但已经足以证明它们不是无意义参数
+  - 最新 HTTP 证据链进一步确认：
+    - `datetype`
+    - `type`
+    - `doctype`
+    都会切换数据范围
+  - 当前正式候选 sweep 集已经收成：
+    - `datetype = [1, 2]`
+    - `type = [已出库, 已入库, 在途]`
+    - `doctype = [1, 2, 3, 7]`
+  - 其中 `doctype=3/4/5/6` 当前在样本中属于等价组，最小 sweep 集先保留 `3`
+  - 这条路线当前仍然不能直接进入 capture 主链，剩余 blocker 只剩：
+    - `doctype` 的分组语义还要再做一次受控确认
+    - 还需要验证 `datetype × type × doctype` 的最小组合 sweep 是否稳定覆盖单据集合
 - `库存综合分析`
   - 第二轮页面研究对 `rtype=1/2/3` 做了直接单变量 probe
   - 当前结果是：

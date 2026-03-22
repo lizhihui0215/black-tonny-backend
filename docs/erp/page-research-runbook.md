@@ -10,6 +10,11 @@
 
 正式抓取仍然回落到纯 HTTP。
 
+通用 Playwright / profile / 研究工具边界说明见：
+
+- [浏览器研究工具说明](../tooling/browser-research-tools.md)
+- [工具文档入口](../tooling/README.md)
+
 ## 2. 运行边界
 
 - 只研究当前合法账号
@@ -204,9 +209,9 @@
   --run-dir output/playwright/yeusoft-research/<timestamp>
 ```
 
-## 7. 当前第一版能力
+## 7. 当前能力边界
 
-第一版已经支持：
+当前已经支持：
 
 - 持久化 profile 复用登录态
 - 自动打开已知报表/查询页面
@@ -222,7 +227,7 @@
 - 对销售菜单给出 `grain_route` 和 `candidate_join_keys`
 - 对库存枚举给出“切视图 / 切数据范围”的结构化判断
 
-第一版暂不承诺：
+当前暂不承诺：
 
 - 自动完成所有复杂筛选器的 UI 操作
 - 自动登录

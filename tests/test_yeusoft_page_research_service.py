@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.services.yeusoft_page_research_service import (
     build_menu_lookup,
+    build_menu_coverage_registry_entries,
     build_page_manifest_summary,
     build_page_research_registry,
     build_unknown_page_registry_entries,
@@ -97,6 +98,36 @@ curl 'https://example.com/FxErpApi/FXDIYReport/GetDIYReportData' --data-raw '{"m
     assert [entry.title for entry in extra_entries] == ["商品资料"]
     assert extra_entries[0].menu_root_name == "基础资料"
     assert extra_entries[0].target_menu_path == ("基础资料", "商品资料")
+
+
+def test_build_menu_coverage_registry_entries_can_rehydrate_covered_page() -> None:
+    payload = {
+        "pages": [
+            {
+                "title": "商品资料",
+                "root_name": "基础资料",
+                "group_name": "",
+                "menu_path": ["基础资料", "商品资料"],
+                "coverage_status": "covered",
+            },
+            {
+                "title": "客户资料",
+                "root_name": "基础资料",
+                "group_name": "",
+                "menu_path": ["基础资料", "客户资料"],
+                "coverage_status": "covered",
+            },
+        ]
+    }
+
+    entries = build_menu_coverage_registry_entries(
+        payload,
+        only_titles=["商品资料"],
+    )
+
+    assert [entry.title for entry in entries] == ["商品资料"]
+    assert entries[0].menu_root_name == "基础资料"
+    assert entries[0].target_menu_path == ("基础资料", "商品资料")
 
 
 def test_list_report_menu_items_and_lookup_support_alias():
@@ -405,6 +436,67 @@ def test_build_page_manifest_summary_keeps_variant_metadata():
     assert summary["menu_root_name"] == "报表管理"
     assert summary["variant_label"] == "按中分类"
     assert summary["variant_of"] == "库存综合分析"
+
+
+def test_build_page_manifest_summary_detects_return_detail_data_endpoint():
+    manifest = {
+        "page": {"title": "退货明细"},
+        "status": "ok",
+        "visible_controls": [],
+        "network": {
+            "requests": [
+                {
+                    "id": 1,
+                    "url": "https://jyapistaging.yeusoft.net/JyApi/Grid/GetViewGridList",
+                    "post_data": {"menuid": "E004003004", "gridid": "E004003004_2", "isJyApi": True},
+                },
+                {
+                    "id": 2,
+                    "url": "https://erpapistaging.yeusoft.net/eposapi/YisEposReport/ReturnStockBaseInfo",
+                    "post_data": {"menuid": "E004003004"},
+                },
+                {
+                    "id": 3,
+                    "url": "https://erpapistaging.yeusoft.net/eposapi/YisEposReport/SelReturnStockList",
+                    "post_data": {
+                        "menuid": "E004003004",
+                        "gridid": "E004003004_2",
+                        "warecause": "",
+                        "spenum": "",
+                        "type": "0",
+                    },
+                },
+            ],
+            "responses": [
+                {
+                    "request_id": 1,
+                    "url": "https://jyapistaging.yeusoft.net/JyApi/Grid/GetViewGridList",
+                    "response_summary": {"row_count": 0, "response_shape": "Data[].ViewList"},
+                },
+                {
+                    "request_id": 2,
+                    "url": "https://erpapistaging.yeusoft.net/eposapi/YisEposReport/ReturnStockBaseInfo",
+                    "response_summary": {"row_count": 0, "response_shape": "retdata"},
+                },
+                {
+                    "request_id": 3,
+                    "url": "https://erpapistaging.yeusoft.net/eposapi/YisEposReport/SelReturnStockList",
+                    "response_summary": {
+                        "row_count": 42,
+                        "response_shape": "retdata.Data",
+                        "columns_signature": "return-columns",
+                        "row_set_signature": "return-set",
+                    },
+                },
+            ],
+        },
+    }
+
+    summary = build_page_manifest_summary(manifest)
+
+    assert summary["source_candidates"] == ["SelReturnStockList"]
+    assert "GetViewGridList" in summary["result_snapshot_candidates"]
+    assert "ReturnStockBaseInfo" in summary["result_snapshot_candidates"]
 
 
 def test_summarize_page_manifests_reports_failed_pages():

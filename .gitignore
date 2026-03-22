@@ -15,3 +15,7 @@ data/*.db
 frontend-dist/*
 !frontend-dist/.gitkeep
 mysql-data/
+output/
+.playwright-cli/
+tmp/
+*.egg-info/

@@ -136,11 +136,16 @@ INTERESTING_ENDPOINTS = (
     "SelInSalesReportByDay",
     "SelVipAnalysisReport",
     "SelVipSaleRank",
+    "SelDeptList",
+    "SelWareList",
+    "SelWareInfoList",
     "SelSaleReport",
     "SelSaleReportData",
     "SelWareTypeAnalysisList",
     "DeptMonthSalesReport",
     "SelectRetailDocPaymentSlip",
+    "ReturnStockBaseInfo",
+    "SelReturnStockList",
 )
 NON_DATA_ENDPOINTS = {
     "GetMenuList",
@@ -148,6 +153,7 @@ NON_DATA_ENDPOINTS = {
     "GetFilterContentData",
     "GetControlData",
     "GetViewGridList",
+    "ReturnStockBaseInfo",
 }
 DEFAULT_QUERY_DATE_RANGE = {
     "start": "2025-03-01",
@@ -372,15 +378,33 @@ def build_unknown_page_registry_entries(
     *,
     existing_registry: Sequence[ResearchPageRegistryEntry] = (),
 ) -> list[ResearchPageRegistryEntry]:
+    return build_menu_coverage_registry_entries(
+        menu_coverage_payload,
+        existing_registry=existing_registry,
+        coverage_statuses={"visible_but_untracked"},
+    )
+
+
+def build_menu_coverage_registry_entries(
+    menu_coverage_payload: Mapping[str, Any] | None,
+    *,
+    existing_registry: Sequence[ResearchPageRegistryEntry] = (),
+    only_titles: Sequence[str] | None = None,
+    coverage_statuses: set[str] | None = None,
+) -> list[ResearchPageRegistryEntry]:
     if not menu_coverage_payload:
         return []
 
     known_titles = {entry.title for entry in existing_registry}
+    wanted = {str(title).strip() for title in (only_titles or []) if str(title).strip()}
     entries: list[ResearchPageRegistryEntry] = []
     for page in menu_coverage_payload.get("pages", []):
-        if str(page.get("coverage_status") or "") != "visible_but_untracked":
+        coverage_status = str(page.get("coverage_status") or "")
+        if coverage_statuses is not None and coverage_status not in coverage_statuses:
             continue
         title = str(page.get("title") or "").strip()
+        if wanted and title not in wanted:
+            continue
         if not title or title in known_titles:
             continue
         root_name = str(page.get("root_name") or "").strip()
@@ -412,6 +436,25 @@ def build_unknown_page_registry_entries(
 
 
 def flatten_menu(menu_list: Sequence[Mapping[str, Any]], parents: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+    flattened: list[dict[str, Any]] = []
+    for item in menu_list:
+        if not isinstance(item, Mapping):
+            continue
+        func_name = str(item.get("FuncName") or item.get("Name") or "").strip()
+        current_parents = parents + ((func_name,) if func_name else ())
+        copied = dict(item)
+        copied["_parents"] = list(parents)
+        flattened.append(copied)
+        children = (
+            item.get("SubList")
+            or item.get("Children")
+            or item.get("children")
+            or item.get("Items")
+            or []
+        )
+        if isinstance(children, Sequence) and not isinstance(children, (str, bytes)):
+            flattened.extend(flatten_menu(children, current_parents))
+    return flattened
     flattened: list[dict[str, Any]] = []
     for item in menu_list:
         if not isinstance(item, Mapping):

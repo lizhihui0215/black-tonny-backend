@@ -197,6 +197,74 @@ def test_analyze_response_sample_supports_retdata_nested_data_shape(tmp_path: Pa
     assert result["column_count"] == 3
 
 
+def test_analyze_response_sample_supports_retdata_mapping_data_shape(tmp_path: Path):
+    sample = {
+        "errcode": "1000",
+        "retdata": {
+            "DataCount": 2,
+            "Data": [
+                {"VipCode": "0001", "VipCardID": "13800000001", "Name": "A"},
+                {"VipCode": "0002", "VipCardID": "13800000002", "Name": "B"},
+            ],
+        },
+    }
+    sample_path = tmp_path / "会员中心.json"
+    sample_path.write_text(json.dumps(sample, ensure_ascii=False), "utf-8")
+
+    result = analyze_response_sample(sample_path)
+
+    assert result["response_shape"] == "retdata.Data"
+    assert result["row_count"] == 2
+    assert result["column_count"] == 3
+    assert "vip_card_no" in result["normalized_tokens"]
+
+
+def test_analyze_response_sample_treats_placeholder_mapping_row_as_zero_rows(tmp_path: Path):
+    sample = {
+        "errcode": "1000",
+        "retdata": {
+            "Count": "0",
+            "Data": [{}],
+        },
+    }
+    sample_path = tmp_path / "客户资料.json"
+    sample_path.write_text(json.dumps(sample, ensure_ascii=False), "utf-8")
+
+    result = analyze_response_sample(sample_path)
+
+    assert result["response_shape"] == "retdata.Data"
+    assert result["row_count"] == 0
+    assert result["column_count"] == 0
+
+
+def test_analyze_response_payload_extracts_json_error_from_text_body():
+    result = analyze_response_payload('{"errcode":"4000","errmsg":"将截断字符串或二进制数据。"}')
+
+    assert result["row_count"] == 0
+    assert result["error_code"] == "4000"
+    assert result["error_message"] == "将截断字符串或二进制数据。"
+
+
+def test_analyze_response_payload_extracts_error_from_malformed_json_text_body():
+    result = analyze_response_payload('{"errcode":"4000", "errmsg":"将截断字符串或二进制数据。<br/>INSERT ..."')
+
+    assert result["row_count"] == 0
+    assert result["error_code"] == "4000"
+    assert result["error_message"].startswith("将截断字符串或二进制数据。")
+
+
+def test_analyze_response_payload_extracts_error_from_raw_text_wrapper():
+    result = analyze_response_payload(
+        {
+            "raw_text": '{"errcode":"4000","errmsg":"将截断字符串或二进制数据。"}',
+        }
+    )
+
+    assert result["row_count"] == 0
+    assert result["error_code"] == "4000"
+    assert result["error_message"] == "将截断字符串或二进制数据。"
+
+
 def test_analyze_grid_view_payload_extracts_column_tokens():
     payload = {
         "Success": True,
