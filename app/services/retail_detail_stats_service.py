@@ -45,6 +45,19 @@ def _as_float(value: Any, default: float = 0.0) -> float:
     return float(value)
 
 
+def _normalize_group_token(value: Any) -> str | None:
+    if value in (None, "", "null"):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _normalize_price_token(value: Any) -> float | None:
+    if value in (None, "", "null"):
+        return None
+    return round(float(value), 2)
+
+
 def _decode_unicode_escapes(value: Any) -> str:
     text = str(value or "")
     text = text.replace("%u", "\\u")
@@ -175,25 +188,74 @@ def summarize_retail_detail_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def summarize_retail_detail_comparable_grain(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    groups: dict[tuple[str | None, str | None, float | None], dict[str, float]] = {}
+    for row in rows:
+        key = (
+            _normalize_group_token(row.get("sku_code")),
+            _normalize_group_token(row.get("color_name")),
+            _normalize_price_token(row.get("retail_price")),
+        )
+        bucket = groups.setdefault(key, {"quantity_total": 0.0, "amount_total": 0.0, "row_count": 0.0})
+        bucket["quantity_total"] += _as_float(row.get("quantity_total"))
+        bucket["amount_total"] += _as_float(row.get("amount_total"))
+        bucket["row_count"] += 1.0
+
+    return {
+        "key_fields": ["sku_code", "color_name", "retail_price"],
+        "row_count": len(groups),
+        "groups": groups,
+    }
+
+
 def summarize_sales_list_payload(payload: dict[str, Any] | list[Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return {"line_count": 0, "order_count": 0, "quantity_total": 0.0, "amount_total": 0.0}
+        return {
+            "line_count": 0,
+            "order_count": 0,
+            "quantity_total": 0.0,
+            "amount_total": 0.0,
+            "comparable_grain_row_count": 0,
+            "comparable_grain_key_fields": [],
+            "comparable_grain_groups": {},
+        }
     retdata = payload.get("retdata")
     if not isinstance(retdata, dict):
-        return {"line_count": 0, "order_count": 0, "quantity_total": 0.0, "amount_total": 0.0}
+        return {
+            "line_count": 0,
+            "order_count": 0,
+            "quantity_total": 0.0,
+            "amount_total": 0.0,
+            "comparable_grain_row_count": 0,
+            "comparable_grain_key_fields": [],
+            "comparable_grain_groups": {},
+        }
     columns = retdata.get("ColumnsList")
     rows = retdata.get("Data")
     if not isinstance(columns, list) or not isinstance(rows, list):
-        return {"line_count": 0, "order_count": 0, "quantity_total": 0.0, "amount_total": 0.0}
+        return {
+            "line_count": 0,
+            "order_count": 0,
+            "quantity_total": 0.0,
+            "amount_total": 0.0,
+            "comparable_grain_row_count": 0,
+            "comparable_grain_key_fields": [],
+            "comparable_grain_groups": {},
+        }
 
     column_index = {str(column): index for index, column in enumerate(columns)}
     order_idx = column_index.get("零售单号")
     quantity_idx = column_index.get("数量")
     amount_idx = column_index.get("金额")
+    store_idx = column_index.get("店铺名称")
+    style_idx = column_index.get("款号")
+    color_idx = column_index.get("颜色")
+    tag_price_idx = column_index.get("吊牌价")
 
     order_ids: set[str] = set()
     quantity_total = 0.0
     amount_total = 0.0
+    comparable_groups: dict[tuple[str | None, str | None, float | None], dict[str, float]] = {}
     for row in rows:
         if not isinstance(row, list):
             continue
@@ -203,12 +265,25 @@ def summarize_sales_list_payload(payload: dict[str, Any] | list[Any]) -> dict[st
             quantity_total += _as_float(row[quantity_idx])
         if amount_idx is not None and amount_idx < len(row):
             amount_total += _as_float(row[amount_idx])
+        group_key = (
+            _normalize_group_token(row[style_idx]) if style_idx is not None and style_idx < len(row) else None,
+            _normalize_group_token(row[color_idx]) if color_idx is not None and color_idx < len(row) else None,
+            _normalize_price_token(row[tag_price_idx]) if tag_price_idx is not None and tag_price_idx < len(row) else None,
+        )
+        if any(part is not None for part in group_key):
+            bucket = comparable_groups.setdefault(group_key, {"quantity_total": 0.0, "amount_total": 0.0, "line_count": 0.0})
+            bucket["quantity_total"] += _as_float(row[quantity_idx]) if quantity_idx is not None and quantity_idx < len(row) else 0.0
+            bucket["amount_total"] += _as_float(row[amount_idx]) if amount_idx is not None and amount_idx < len(row) else 0.0
+            bucket["line_count"] += 1.0
 
     return {
         "line_count": len(rows),
         "order_count": len(order_ids),
         "quantity_total": quantity_total,
         "amount_total": amount_total,
+        "comparable_grain_row_count": len(comparable_groups),
+        "comparable_grain_key_fields": ["style_code", "color", "tag_price"],
+        "comparable_grain_groups": comparable_groups,
     }
 
 
@@ -227,6 +302,53 @@ def _build_metric_status(retail_value: float | None, sales_value: float | None) 
     return "差异待解释", diff, diff_rate
 
 
+def build_sales_retail_grain_alignment(
+    *,
+    retail_rows: list[dict[str, Any]],
+    sales_summary: dict[str, Any],
+) -> dict[str, Any]:
+    retail_grain = summarize_retail_detail_comparable_grain(retail_rows)
+    sales_groups = sales_summary.get("comparable_grain_groups") or {}
+    retail_groups = retail_grain.get("groups") or {}
+
+    sales_keys = set(sales_groups.keys())
+    retail_keys = set(retail_groups.keys())
+    overlap_keys = sales_keys & retail_keys
+    sales_only_keys = sorted(sales_keys - retail_keys)
+    retail_only_keys = sorted(retail_keys - sales_keys)
+
+    quantity_mismatch_count = 0
+    amount_mismatch_count = 0
+    for key in overlap_keys:
+        sales_bucket = sales_groups[key]
+        retail_bucket = retail_groups[key]
+        if round(float(sales_bucket["quantity_total"]), 6) != round(float(retail_bucket["quantity_total"]), 6):
+            quantity_mismatch_count += 1
+        if round(float(sales_bucket["amount_total"]), 2) != round(float(retail_bucket["amount_total"]), 2):
+            amount_mismatch_count += 1
+
+    def _serialize_key(key: tuple[str | None, str | None, float | None]) -> dict[str, Any]:
+        return {
+            "style_code": key[0],
+            "color": key[1],
+            "tag_price": key[2],
+        }
+
+    return {
+        "comparable": True,
+        "key_fields": retail_grain["key_fields"],
+        "retail_row_count": retail_grain["row_count"],
+        "sales_aggregated_row_count": len(sales_keys),
+        "overlap_row_count": len(overlap_keys),
+        "sales_only_row_count": len(sales_only_keys),
+        "retail_only_row_count": len(retail_only_keys),
+        "quantity_mismatch_count": quantity_mismatch_count,
+        "amount_mismatch_count": amount_mismatch_count,
+        "sales_only_samples": [_serialize_key(key) for key in sales_only_keys[:5]],
+        "retail_only_samples": [_serialize_key(key) for key in retail_only_keys[:5]],
+    }
+
+
 def build_sales_reconciliation_report(
     *,
     retail_pages: RetailDetailPaginationResult,
@@ -240,10 +362,15 @@ def build_sales_reconciliation_report(
 
     retail_summary = summarize_retail_detail_rows(retail_rows)
     sales_summary = summarize_sales_list_payload(sales_list_payload)
+    grain_alignment = build_sales_retail_grain_alignment(
+        retail_rows=retail_rows,
+        sales_summary=sales_summary,
+    )
+    sales_summary_output = {key: value for key, value in sales_summary.items() if key != "comparable_grain_groups"}
 
     row_status, row_diff, row_diff_rate = _build_metric_status(
         float(retail_summary["row_count"]),
-        float(sales_summary["line_count"]),
+        float(sales_summary["comparable_grain_row_count"]),
     )
     qty_status, qty_diff, qty_diff_rate = _build_metric_status(
         retail_summary["quantity_total"],
@@ -265,14 +392,15 @@ def build_sales_reconciliation_report(
             "summary": retail_summary,
         },
         "sales_list": {
-            "summary": sales_summary,
+            "summary": sales_summary_output,
         },
+        "grain_alignment": grain_alignment,
         "metrics": [
             {
                 "metric": "line_count",
-                "label": "零售明细行数 vs 销售清单行数",
+                "label": "零售宽表行数 vs 销售清单按店铺/款号/颜色/吊牌价聚合后行数",
                 "retail_detail_value": retail_summary["row_count"],
-                "sales_list_value": sales_summary["line_count"],
+                "sales_list_value": sales_summary["comparable_grain_row_count"],
                 "diff": row_diff,
                 "diff_rate": row_diff_rate,
                 "status": row_status,
@@ -302,7 +430,7 @@ def build_sales_reconciliation_report(
                 "sales_list_value": sales_summary["order_count"],
                 "diff": None,
                 "diff_rate": None,
-                "status": "差异待解释",
+                "status": "不同粒度，不直接对账",
             },
         ],
     }

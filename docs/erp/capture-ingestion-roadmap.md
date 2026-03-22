@@ -148,18 +148,16 @@ Phase 0 完成标准：
   - 当前 blocker：
     - `sale_date` 不是稳定关联键
     - `operator` 不是稳定关联键
-    - `line_count` 差异待解释
-    - `sales_list_order_count` 差异待解释
 - `GetDIYReportData(E004001008_2)`
   - 定位：明细行候选源
   - 当前 blocker：
     - `sale_no` 仍未达到完全稳定头行覆盖
-    - `line_count` 差异待解释
-    - `sales_list_order_count` 差异待解释
 - `SelDeptSaleList`
   - 定位：研究 / 对账源
-  - 当前 blocker：
-    - `edate` 仍为 `mixed`
+  - 当前结论：
+    - 常规结束日期窗口下 `edate` 已确认是 `same_dataset`
+    - 只有压到单日时才会退化成 edge case
+    - 继续保留为研究 / 对账源，不进入事实主源候选
 
 Phase 1 完成标准：
 
@@ -331,9 +329,9 @@ Phase 3 完成标准：
 
 1. 先确认状态板里的全部路线都已完成风险地图
 2. 若全域门槛已达成：
-   - 销售域继续解释 `line_count`
-   - 销售域继续解释 `sales_list_order_count`
-   - 销售域收口 `SelDeptSaleList.edate`
+   - 销售域继续验证 `sale_no` 头行覆盖稳定度
+   - 销售域继续确认 `sale_date` / `operator` 不应进入主关联键
+   - 销售域把 `SelDeptSaleList` 固定为研究 / 对账源并记录单日 edge case
 3. 再推进库存域：
    - 继续拆 `type`
    - 继续拆 `doctype`

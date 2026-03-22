@@ -179,10 +179,10 @@ def test_build_sales_reconciliation_report_outputs_metric_statuses():
     )
     sales_list_payload = {
         "retdata": {
-            "ColumnsList": ["零售单号", "数量", "金额"],
+            "ColumnsList": ["零售单号", "款号", "颜色", "吊牌价", "数量", "金额"],
             "Data": [
-                ["A001", 1, 100],
-                ["A002", 1, 80],
+                ["A001", "SKU-A", "粉色", 100, 1, 100],
+                ["A002", "SKU-A", "粉色", 100, 1, 80],
             ],
         }
     }
@@ -197,7 +197,10 @@ def test_build_sales_reconciliation_report_outputs_metric_statuses():
     assert report["retail_detail_source_endpoint"] == RETAIL_DETAIL_CANONICAL_ENDPOINT
     assert report["retail_detail"]["summary"]["quantity_total"] == 2.0
     assert report["sales_list"]["summary"]["order_count"] == 2
+    assert report["sales_list"]["summary"]["comparable_grain_row_count"] == 1
+    assert report["grain_alignment"]["overlap_row_count"] == 1
     metric_map = {metric["metric"]: metric for metric in report["metrics"]}
+    assert metric_map["line_count"]["status"] == "一致"
     assert metric_map["quantity_total"]["status"] == "一致"
     assert metric_map["amount_total"]["status"] == "一致"
-    assert metric_map["sales_list_order_count"]["status"] == "差异待解释"
+    assert metric_map["sales_list_order_count"]["status"] == "不同粒度，不直接对账"

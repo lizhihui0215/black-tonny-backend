@@ -114,8 +114,8 @@ def test_build_api_maturity_board_splits_sales_routes_and_marks_inventory_follow
 
     sales_evidence = {
         "issue_flags": [
-            "edate 当前未收口到正式 HTTP 主链参数",
-            "对账指标 line_count 仍是差异待解释",
+            "sale_date 当前不能作为稳定头行关联键",
+            "operator 当前不能作为稳定头行关联键",
         ],
         "join_key_analysis": {
             "candidate_keys": [
@@ -223,7 +223,12 @@ def test_build_api_maturity_board_splits_sales_routes_and_marks_inventory_follow
     assert routes["SelSaleReport"]["reliability_status"] == "中等可信"
     assert routes["SelSaleReport"]["menu_path"] == ["报表管理", "零售报表", "销售清单"]
     assert routes["SelSaleReport"]["coverage_status"] == "covered"
+    assert routes["SelSaleReport"]["blocking_issues"] == [
+        "sale_date 当前不能作为稳定头行关联键",
+        "operator 当前不能作为稳定头行关联键",
+    ]
     assert routes["SelDeptSaleList"]["role"] == "对账源"
+    assert routes["SelDeptSaleList"]["blocking_issues"] == []
     assert routes["库存明细统计 / SelDeptStockWaitList"]["stage"] == "已单变量"
     assert routes["库存明细统计 / SelDeptStockWaitList"]["next_action"] == "确认 stockflag=1/2 的正式抓取策略，并补分页终止规则"
     assert routes["会员中心 / SelVipInfoList"]["blocking_issues"] == [
@@ -260,7 +265,7 @@ def test_render_api_maturity_board_markdown_includes_status_sections():
             "stage_counts": {"已HTTP回证": 1},
             "trust_counts": {"中": 1},
             "reliability_counts": {"中等可信": 1},
-            "top_blockers": [{"issue": "对账指标 line_count 仍是差异待解释", "count": 1}],
+            "top_blockers": [{"issue": "sale_date 当前不能作为稳定头行关联键", "count": 1}],
             "domains": {
                 "sales": {"route_count": 1, "http_verified": 1, "single_variable": 0, "baseline_only": 0, "discovered_only": 0, "high_trust": 0, "medium_trust": 1, "low_trust": 0, "research_map_complete": 1},
                 "inventory": {"route_count": 0, "http_verified": 0, "single_variable": 0, "baseline_only": 0, "discovered_only": 0, "high_trust": 0, "medium_trust": 0, "low_trust": 0, "research_map_complete": 0},
@@ -289,8 +294,8 @@ def test_render_api_maturity_board_markdown_includes_status_sections():
                 "coverage_status": "covered",
                 "coverage_confidence": "high",
                 "coverage_scope": ["当前账号范围", "多粒度"],
-                "blocking_issues": ["对账指标 line_count 仍是差异待解释"],
-                "next_action": "继续收口 line_count",
+                "blocking_issues": ["sale_date 当前不能作为稳定头行关联键"],
+                "next_action": "继续验证 sale_no 头行稳定度",
             }
         ],
     }
@@ -303,7 +308,7 @@ def test_render_api_maturity_board_markdown_includes_status_sections():
     assert "全域门槛已达成" in markdown
     assert "当前账号可见菜单覆盖审计完成" in markdown
     assert "覆盖状态" in markdown
-    assert "对账指标 line_count 仍是差异待解释" in markdown
+    assert "sale_date 当前不能作为稳定头行关联键" in markdown
 
 
 def test_build_api_maturity_board_promotes_researched_unknown_pages_into_real_routes(tmp_path: Path):

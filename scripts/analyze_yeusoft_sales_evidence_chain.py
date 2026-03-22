@@ -81,12 +81,27 @@ def post_with_auth(
     return final_url, data, analyze_response_payload(data)
 
 
-def find_latest_page_research_summary(path: Path | None = None) -> tuple[Path, dict[str, Any]]:
+def find_latest_page_research_summary(
+    path: Path | None = None,
+    *,
+    required_titles: tuple[str, ...] = (),
+) -> tuple[Path, dict[str, Any]]:
     if path is not None:
-        return path, json.loads(path.read_text("utf-8"))
+        payload = json.loads(path.read_text("utf-8"))
+        return path, payload
+
     candidates = sorted(DEFAULT_OUTPUT_ROOT.glob(DEFAULT_PAGE_RESEARCH_GLOB))
     if not candidates:
         raise FileNotFoundError("未找到 Yeusoft 页面研究汇总文件")
+
+    for candidate in reversed(candidates):
+        payload = json.loads(candidate.read_text("utf-8"))
+        if not required_titles:
+            return candidate, payload
+        page_titles = {str(page.get("title") or "") for page in payload.get("pages", [])}
+        if all(title in page_titles for title in required_titles):
+            return candidate, payload
+
     latest = candidates[-1]
     return latest, json.loads(latest.read_text("utf-8"))
 
@@ -172,7 +187,8 @@ def main() -> int:
     readme = Path(args.readme)
     report_doc = Path(args.report_doc)
     page_research_path, page_research_payload = find_latest_page_research_summary(
-        Path(args.page_research) if args.page_research else None
+        Path(args.page_research) if args.page_research else None,
+        required_titles=("销售清单", "零售明细统计"),
     )
     output_path = (
         Path(args.output)
@@ -277,6 +293,11 @@ def main() -> int:
 
     retail_base_page_payload = build_retail_detail_page_payload(retail_detail_spec.payload, page_no=0, page_size=20)
     retail_page_1_payload = build_retail_detail_page_payload(retail_detail_spec.payload, page_no=1, page_size=20)
+    retail_aligned_end_payload = build_variant_payload(
+        retail_base_page_payload,
+        "edate",
+        sales_list_spec.payload["parameter"]["EndDate"],
+    )
     retail_same_day_payload = build_variant_payload(retail_base_page_payload, "edate", retail_detail_spec.payload["bdate"])
 
     retail_base_url, retail_base_data, retail_base_analysis = post_with_auth(
@@ -289,6 +310,13 @@ def main() -> int:
     retail_page_1_url, retail_page_1_data, retail_page_1_analysis = post_with_auth(
         url=retail_detail_spec.url,
         payload=retail_page_1_payload,
+        api_base_url=api_base_url,
+        access_token=access_token,
+        transport=args.transport,
+    )
+    retail_aligned_end_url, retail_aligned_end_data, retail_aligned_end_analysis = post_with_auth(
+        url=retail_detail_spec.url,
+        payload=retail_aligned_end_payload,
         api_base_url=api_base_url,
         access_token=access_token,
         transport=args.transport,
@@ -310,7 +338,7 @@ def main() -> int:
         "edate": classify_http_probe_semantics(
             parameter_path="edate",
             baseline_analysis=retail_base_analysis,
-            variants=[{"value": retail_same_day_payload["edate"], **retail_same_day_analysis}],
+            variants=[{"value": retail_aligned_end_payload["edate"], **retail_aligned_end_analysis}],
         ),
     }
 
@@ -413,6 +441,7 @@ def main() -> int:
             "detail_route": {"url": detail_url, "payload": sales_list_spec.payload},
             "retail_detail_page_0": {"url": retail_base_url, "payload": retail_base_page_payload},
             "retail_detail_page_1": {"url": retail_page_1_url, "payload": retail_page_1_payload},
+            "retail_detail_aligned_end": {"url": retail_aligned_end_url, "payload": retail_aligned_end_payload},
             "retail_detail_same_day": {"url": retail_same_day_url, "payload": retail_same_day_payload},
         },
         "route_pairing": grain_analysis,
@@ -430,8 +459,17 @@ def main() -> int:
         "retail_detail_http_verification": {
             "page_0": {"analysis": retail_base_analysis, "payload": retail_base_page_payload},
             "page_1": {"analysis": retail_page_1_analysis, "payload": retail_page_1_payload},
+            "aligned_end": {"analysis": retail_aligned_end_analysis, "payload": retail_aligned_end_payload},
             "same_day": {"analysis": retail_same_day_analysis, "payload": retail_same_day_payload},
             "parameter_semantics": retail_parameter_semantics,
+            "edge_case_notes": [
+                {
+                    "parameter_path": "edate",
+                    "value": retail_same_day_payload["edate"],
+                    "analysis": retail_same_day_analysis,
+                    "note": "当 edate 压缩到与 bdate 同一天时，零售明细统计会退化成单行结果，属于单日 edge case。",
+                }
+            ],
             "pagination_summary": serialize_retail_detail_pagination_result(retail_pagination_result),
         },
         "reconciliation": reconciliation,

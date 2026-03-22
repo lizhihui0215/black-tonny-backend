@@ -44,10 +44,10 @@
 - `8` 次：尚未完成单变量探测
 - `8` 次：尚未完成 HTTP 回证
 - `4` 次：配置/设置类页面，默认不进入事实主链
-- `3` 次：对账指标 line_count 仍是差异待解释
-- `3` 次：对账指标 sales_list_order_count 仍是差异待解释
 - `3` 次：尚未确认是否只保留结果快照定位
 - `1` 次：sale_no 头行关联虽最稳定，但 detail_overlap_rate 仍未达到 100%
+- `1` 次：sale_date 当前不能作为稳定头行关联键
+- `1` 次：operator 当前不能作为稳定头行关联键
 
 ## 4. 分域状态
 
@@ -65,11 +65,11 @@
 
 | 路线 | 来源分类 | 阶段 | 风险地图完成 | 覆盖状态 | 可信度 | 全域门槛阻塞 | 主链就绪 | 菜单路径 | 剩余问题 | 下一步 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| GetDIYReportData(E004001008_2) | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 销售清单 | sale_no 头行关联虽最稳定，但 detail_overlap_rate 仍未达到 100%；对账指标 line_count 仍是差异待解释；对账指标 sales_list_order_count 仍是差异待解释 | 继续验证 sale_no 头行命中率与明细解释性，再评估 sales_order_items 正式映射 |
-| SelSaleReport | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 销售清单 | sale_date 当前不能作为稳定头行关联键；operator 当前不能作为稳定头行关联键；对账指标 line_count 仍是差异待解释；对账指标 sales_list_order_count 仍是差异待解释 | 继续收口 line_count 与 sales_list_order_count，再评估销售主链准入 |
+| GetDIYReportData(E004001008_2) | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 销售清单 | sale_no 头行关联虽最稳定，但 detail_overlap_rate 仍未达到 100% | 继续验证 sale_no 头行命中率与明细解释性，再评估 sales_order_items 正式映射 |
+| SelSaleReport | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 销售清单 | sale_date 当前不能作为稳定头行关联键；operator 当前不能作为稳定头行关联键 | 继续验证 sale_no 头行稳定度与订单头唯一性，再评估销售主链准入 |
 | 商品资料 / 待识别 | 主源候选 | 已基线 | 是 | covered | 能跑但不能信 | 否 | 否 | 基础资料 / 商品资料 | 尚未完成单变量探测；尚未完成 HTTP 回证 | 补 商品资料 的单变量探测与 HTTP 回证 |
 | 客户资料 / GetControlData | 主源候选 | 已基线 | 是 | covered | 能跑但不能信 | 否 | 否 | 基础资料 / 客户资料 | 尚未完成单变量探测；尚未完成 HTTP 回证 | 补 客户资料 的单变量探测与 HTTP 回证 |
-| SelDeptSaleList | 对账源 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 零售明细统计 | edate 当前未收口到正式 HTTP 主链参数；对账指标 line_count 仍是差异待解释；对账指标 sales_list_order_count 仍是差异待解释 | 继续解释 edate 的 mixed 语义，并保持研究/对账源定位 |
+| SelDeptSaleList | 对账源 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 零售明细统计 | - | 保持研究/对账源定位，补充极端单日窗口的 edge case 说明即可 |
 | 商品销售情况 / SelSaleReportData | 结果快照 | 已基线 | 是 | covered | 能跑但不能信 | 否 | 否 | 报表管理 / 综合分析 / 商品销售情况 | 尚未完成分页/枚举确认 | 补 商品销售情况 的分页/枚举确认，保持结果快照定位 |
 | 门店销售月报 / DeptMonthSalesReport | 结果快照 | 已基线 | 是 | covered | 能跑但不能信 | 否 | 否 | 报表管理 / 综合分析 / 门店销售月报 | 尚未完成分页/枚举确认 | 补 门店销售月报 的分页/枚举确认，保持结果快照定位 |
 | 参数设置 / page_baseline | 未采纳 | 已基线 | 是 | covered | 能跑但不能信 | 否 | 否 | 其他 / 参数设置 | 配置/设置类页面，默认不进入事实主链 | 保持 参数设置 为未采纳；若后续确认有长期分析价值，再单独评估 snapshot 路线 |
@@ -123,7 +123,7 @@
 
 1. 先完成当前账号可见菜单覆盖审计，确认状态板已经从“已知全域”升级为“当前账号可见全域”。
 2. 再补 visible_but_untracked 页面基线，把 unknown page 收口成正常路线或明确标记为无数据页。
-3. 然后优先收口销售域的 `line_count`、`sales_list_order_count` 和 `SelDeptSaleList.edate`。
+3. 然后优先收口销售域的 `sale_no` 头行覆盖、`sale_date` / `operator` 的非主关联定位，以及 `SelDeptSaleList` 的单日 edge case。
 4. 再收口库存域的 `type`、`doctype` 与 `stockflag=1/2`。
 5. 最后才轮到会员 / 储值 / 流水单据的 HTTP 回证与主链准入评估。
 
@@ -140,7 +140,7 @@
   - `tmp/capture-samples/analysis/yeusoft-page-research-20260322-023512.json`
   - `tmp/capture-samples/analysis/yeusoft-page-research-20260322-024014.json`
   - `tmp/capture-samples/analysis/yeusoft-page-research-20260322-154152.json`
-- `sales_evidence`: `tmp/capture-samples/analysis/sales-evidence-chain-20260322-031807.json`
+- `sales_evidence`: `tmp/capture-samples/analysis/sales-evidence-chain-20260322-162255.json`
 - `menu_coverage_audit`: `tmp/capture-samples/analysis/menu-coverage-audit-20260322-154931.json`
 - `ledger_files`
   - `docs/erp/sales-ledger.md`
