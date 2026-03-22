@@ -31,8 +31,8 @@
 - container_only：`8`
 - 全域门槛已达成：`是`
 - 已准入主链：`0`
-- 已 HTTP 回证：`4`
-- 已单变量：`5`
+- 已 HTTP 回证：`6`
+- 已单变量：`3`
 - 仅基线：`25`
 - 仅发现：`0`
 - 能跑但不能信：`25`
@@ -45,16 +45,16 @@
 - `8` 次：尚未完成 HTTP 回证
 - `4` 次：配置/设置类页面，默认不进入事实主链
 - `3` 次：尚未确认是否只保留结果快照定位
-- `1` 次：type/doctype 仍待继续跟进
-- `1` 次：stockflag 已确认切数据范围，但 1/2 是否正式并入主链仍待定
-- `1` 次：分页终止条件仍需继续收口
+- `1` 次：condition / searchval / VolumeNumber 语义仍待确认
+- `1` 次：尚未完成纯 HTTP 回证
+- `1` 次：Search 语义仍待确认
 
 ## 4. 分域状态
 
 | 域 | 路线数 | 风险地图完成 | 已HTTP回证 | 已单变量 | 仅基线 | 仅发现 | 中高可信 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 销售 | 13 | 13 | 4 | 0 | 9 | 0 | 4 |
-| 库存 | 9 | 9 | 0 | 5 | 4 | 0 | 5 |
+| 库存 | 9 | 9 | 2 | 3 | 4 | 0 | 5 |
 | 会员 | 5 | 5 | 0 | 0 | 5 | 0 | 0 |
 | 储值 | 3 | 3 | 0 | 0 | 3 | 0 | 0 |
 | 流水单据 | 4 | 4 | 0 | 0 | 4 | 0 | 0 |
@@ -83,8 +83,8 @@
 
 | 路线 | 来源分类 | 阶段 | 风险地图完成 | 覆盖状态 | 可信度 | 全域门槛阻塞 | 主链就绪 | 菜单路径 | 剩余问题 | 下一步 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 出入库单据 / SelOutInStockReport | 主源候选 | 已单变量 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 进出报表 / 出入库单据 | type/doctype 仍待继续跟进 | 继续拆 type/doctype 的数据集合语义，再评估库存单据主链准入 |
-| 库存明细统计 / SelDeptStockWaitList | 主源候选 | 已单变量 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 库存报表 / 库存明细统计 | stockflag 已确认切数据范围，但 1/2 是否正式并入主链仍待定；分页终止条件仍需继续收口 | 确认 stockflag=1/2 的正式抓取策略，并补分页终止规则 |
+| 出入库单据 / SelOutInStockReport | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 进出报表 / 出入库单据 | - | 库存单据已具备 capture 候选准入条件，按最小组合 sweep 进入批次留痕 |
+| 库存明细统计 / SelDeptStockWaitList | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 库存报表 / 库存明细统计 | - | 库存明细统计已具备 capture 候选准入条件，按 stockflag=0/1 双范围留痕并固定 page=0 |
 | 库存总和分析-按中分类 / SelStockAnalysisList | 结果快照 | 已单变量 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 库存报表 / 库存综合分析 | 尚未确认是否只保留结果快照定位 | 确认 库存总和分析-按中分类 是否继续只做结果快照 |
 | 库存总和分析-按年份季节 / SelStockAnalysisList | 结果快照 | 已单变量 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 库存报表 / 库存综合分析 | 尚未确认是否只保留结果快照定位 | 确认 库存总和分析-按年份季节 是否继续只做结果快照 |
 | 库存总和分析-按波段 / SelStockAnalysisList | 结果快照 | 已单变量 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 库存报表 / 库存综合分析 | 尚未确认是否只保留结果快照定位 | 确认 库存总和分析-按波段 是否继续只做结果快照 |
@@ -142,6 +142,8 @@
   - `tmp/capture-samples/analysis/yeusoft-page-research-20260322-024014.json`
   - `tmp/capture-samples/analysis/yeusoft-page-research-20260322-154152.json`
 - `sales_evidence`: `tmp/capture-samples/analysis/sales-evidence-chain-20260322-171553.json`
+- `inventory_evidence`: `tmp/capture-samples/analysis/inventory-evidence-chain-20260322-184350.json`
+- `inventory_outin_research`: `tmp/capture-samples/analysis/inventory-outin-capture-research-20260322-192049.json`
 - `menu_coverage_audit`: `tmp/capture-samples/analysis/menu-coverage-audit-20260322-154931.json`
 - `ledger_files`
   - `docs/erp/sales-ledger.md`

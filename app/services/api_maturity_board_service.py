@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.services.inventory_capture_admission_service import build_inventory_capture_admission_bundle
 from app.services.menu_coverage_audit_service import (
     infer_domain_from_menu_metadata,
     load_latest_menu_coverage_audit,
@@ -73,6 +74,8 @@ class BoardSourceFiles:
     report_matrix: Path | None
     page_research_files: tuple[Path, ...]
     sales_evidence: Path | None
+    inventory_evidence: Path | None
+    inventory_outin_research: Path | None
     menu_coverage_audit: Path | None
 
 
@@ -249,6 +252,18 @@ def load_report_matrix(analysis_root: Path) -> tuple[Path | None, dict[str, Any]
 
 def load_sales_evidence(analysis_root: Path) -> tuple[Path | None, dict[str, Any] | None]:
     path = _latest_json(analysis_root, "sales-evidence-chain-*.json")
+    payload = _load_json(path)
+    return path, payload
+
+
+def load_inventory_evidence(analysis_root: Path) -> tuple[Path | None, dict[str, Any] | None]:
+    path = _latest_json(analysis_root, "inventory-evidence-chain-*.json")
+    payload = _load_json(path)
+    return path, payload
+
+
+def load_inventory_outin_research(analysis_root: Path) -> tuple[Path | None, dict[str, Any] | None]:
+    path = _latest_json(analysis_root, "inventory-outin-capture-research-*.json")
     payload = _load_json(path)
     return path, payload
 
@@ -571,6 +586,118 @@ def _build_sales_evidence_entries(
     return [document_entry, detail_entry, reverse_entry, retail_entry]
 
 
+def _build_inventory_evidence_entries(
+    *,
+    inventory_evidence: dict[str, Any],
+    inventory_admission: dict[str, Any],
+    inventory_outin_research_path: Path | None,
+    routes_by_title: dict[str, dict[str, Any]],
+    page_records: dict[str, dict[str, Any]],
+    menu_coverage_index: dict[str, dict[str, Any]],
+    repo_root: Path,
+    inventory_evidence_path: Path,
+) -> list[dict[str, Any]]:
+    detail_route = routes_by_title["库存明细统计"]
+    outin_route = routes_by_title["出入库单据"]
+    detail_page = resolve_page_research_record("库存明细统计", page_records)
+    outin_page = resolve_page_research_record("出入库单据", page_records)
+    detail_coverage = _coverage_metadata(resolve_menu_coverage_page("库存明细统计", menu_coverage_index))
+    outin_coverage = _coverage_metadata(resolve_menu_coverage_page("出入库单据", menu_coverage_index))
+    inventory_detail = dict((inventory_evidence.get("inventory_detail") or {}))
+    outin_report = dict((inventory_evidence.get("outin_report") or {}))
+    shared_sources = [_repo_path(inventory_evidence_path, repo_root)]
+    if detail_page:
+        shared_sources.append(detail_page["_source_path"])
+    if outin_page:
+        shared_sources.append(outin_page["_source_path"])
+    if inventory_outin_research_path is not None:
+        shared_sources.append(_repo_path(inventory_outin_research_path, repo_root))
+    shared_sources = list(dict.fromkeys(shared_sources))
+
+    detail_admission = dict((inventory_admission.get("inventory_detail") or {}))
+    outin_admission = dict((inventory_admission.get("outin_report") or {}))
+    stockflag_equivalence = dict((inventory_detail.get("stockflag_equivalence") or {}))
+    page_interpretation = dict((((inventory_detail.get("parameter_semantics") or {}).get("page") or {}).get("interpretation") or {}))
+    stockflag_values = list(detail_admission.get("recommended_stockflag_values") or [])
+    detail_scope_notes = [f"stockflag={value}" for value in stockflag_values]
+    if stockflag_equivalence.get("stockflag_1_equals_2"):
+        detail_scope_notes.append("stockflag=2 等价于 stockflag=1")
+
+    detail_entry = {
+        "domain": "inventory",
+        "domain_label": "库存",
+        "route": "库存明细统计 / SelDeptStockWaitList",
+        "title": "库存明细统计",
+        "endpoint": detail_route["endpoint"],
+        "role": "主源候选",
+        "source_kind": "主源候选",
+        "stage": "已HTTP回证",
+        "trust_level": "中",
+        "reliability_status": "中等可信",
+        "coverage_scope": ["当前账号范围", "库存主源候选", *detail_scope_notes, "已完成 HTTP 回证"],
+        "research_map_complete": True,
+        "ingestion_blocked_by_global_gate": True,
+        "mainline_ready": False,
+        "blocking_issues": list(detail_admission.get("blocking_issues") or []),
+        "next_action": (
+            "库存明细统计已具备 capture 候选准入条件，按 stockflag=0/1 双范围留痕并固定 page=0"
+            if detail_admission.get("capture_admission_ready")
+            else "继续解释 page 语义或补充 scope 证据，再评估库存主源 capture 准入"
+        ),
+        "current_judgment": "库存事实源候选",
+        "capture_strategy": "枚举 sweep",
+        "risk_labels": detail_route["risk_labels"],
+        "ledger_path": detail_route["ledger_path"],
+        "analysis_sources": shared_sources,
+        "capture_admission_ready": bool(detail_admission.get("capture_admission_ready")),
+        "capture_parameter_plan": dict(detail_admission.get("capture_parameter_plan") or {}),
+        "stockflag_equivalent_groups": list(detail_admission.get("stockflag_equivalent_groups") or []),
+        "page_interpretation": page_interpretation,
+        **detail_coverage,
+    }
+
+    outin_entry = {
+        "domain": "inventory",
+        "domain_label": "库存",
+        "route": "出入库单据 / SelOutInStockReport",
+        "title": "出入库单据",
+        "endpoint": outin_route["endpoint"],
+        "role": "主源候选",
+        "source_kind": "主源候选",
+        "stage": "已HTTP回证",
+        "trust_level": "中",
+        "reliability_status": "中等可信",
+        "coverage_scope": [
+            "当前账号范围",
+            "库存单据主源候选",
+            *(["datetype=" + "/".join(outin_admission.get("recommended_datetype_values") or [])] if outin_admission.get("recommended_datetype_values") else []),
+            "已完成 HTTP 回证",
+        ],
+        "research_map_complete": True,
+        "ingestion_blocked_by_global_gate": True,
+        "mainline_ready": False,
+        "blocking_issues": list(outin_admission.get("blocking_issues") or []),
+        "next_action": (
+            "按 datetype × type × doctype 的最小组合做正式 HTTP sweep，再评估库存单据 capture 准入"
+            if not outin_admission.get("capture_admission_ready")
+            else "库存单据已具备 capture 候选准入条件，按最小组合 sweep 进入批次留痕"
+        ),
+        "current_judgment": "库存单据主源候选",
+        "capture_strategy": "枚举 sweep",
+        "risk_labels": outin_route["risk_labels"],
+        "ledger_path": outin_route["ledger_path"],
+        "analysis_sources": shared_sources,
+        "capture_admission_ready": bool(outin_admission.get("capture_admission_ready")),
+        "capture_parameter_plan": dict(outin_admission.get("capture_parameter_plan") or {}),
+        "recommended_type_values": list(outin_admission.get("recommended_type_values") or []),
+        "recommended_doctype_values": list(outin_admission.get("recommended_doctype_values") or []),
+        "doctype_equivalent_groups": list(outin_admission.get("doctype_equivalent_groups") or []),
+        "parameter_semantics": dict(outin_report.get("parameter_semantics") or {}),
+        **outin_coverage,
+    }
+    return [detail_entry, outin_entry]
+
+
 def _build_unknown_page_entries(
     menu_coverage_payload: dict[str, Any] | None,
     *,
@@ -811,6 +938,20 @@ def _build_route_entries(
     page_records, page_files = load_best_page_research(repo_root, analysis_root)
     report_matrix_path, _ = load_report_matrix(analysis_root)
     sales_evidence_path, sales_evidence = load_sales_evidence(analysis_root)
+    inventory_evidence_path, inventory_evidence = load_inventory_evidence(analysis_root)
+    inventory_outin_research_path, inventory_outin_research = load_inventory_outin_research(analysis_root)
+    outin_research_sweep_summary = (
+        (((inventory_outin_research or {}).get("summary") or {}).get("outin_report") or {}).get("research_sweep_summary")
+        or {}
+    )
+    inventory_admission = (
+        build_inventory_capture_admission_bundle(
+            inventory_evidence=inventory_evidence,
+            outin_research_sweep_summary=outin_research_sweep_summary,
+        )
+        if inventory_evidence_path is not None and inventory_evidence is not None
+        else None
+    )
     menu_coverage_path, menu_coverage_payload = load_latest_menu_coverage_audit(analysis_root)
     menu_coverage_index = _build_menu_coverage_index(menu_coverage_payload)
 
@@ -821,23 +962,12 @@ def _build_route_entries(
             continue
         if has_sales_evidence and route["title"] == "零售明细统计":
             continue
+        if inventory_admission is not None and route["title"] in {"库存明细统计", "出入库单据"}:
+            continue
         page_record = resolve_page_research_record(route["title"], page_records)
         coverage_page = resolve_menu_coverage_page(route["title"], menu_coverage_index)
         entry = _build_generic_entry(route, page_record, coverage_page)
-        if route["title"] == "库存明细统计":
-            entry["blocking_issues"] = [
-                "stockflag 已确认切数据范围，但 1/2 是否正式并入主链仍待定",
-                "分页终止条件仍需继续收口",
-            ]
-            entry["next_action"] = "确认 stockflag=1/2 的正式抓取策略，并补分页终止规则"
-            entry["trust_level"] = "中"
-            entry["reliability_status"] = "中等可信"
-        elif route["title"] == "出入库单据":
-            entry["blocking_issues"] = ["type/doctype 仍待继续跟进"]
-            entry["next_action"] = "继续拆 type/doctype 的数据集合语义，再评估库存单据主链准入"
-            entry["trust_level"] = "中"
-            entry["reliability_status"] = "中等可信"
-        elif route["title"] == "会员中心":
+        if route["title"] == "会员中心":
             entry["blocking_issues"] = [
                 "condition / searchval / VolumeNumber 语义仍待确认",
                 "尚未完成纯 HTTP 回证",
@@ -868,6 +998,19 @@ def _build_route_entries(
                 sales_evidence_path=sales_evidence_path,
             )
         )
+    if inventory_admission is not None and inventory_evidence_path is not None and inventory_evidence is not None:
+        entries.extend(
+            _build_inventory_evidence_entries(
+                inventory_evidence=inventory_evidence,
+                inventory_admission=inventory_admission,
+                inventory_outin_research_path=inventory_outin_research_path,
+                routes_by_title=routes_by_title,
+                page_records=page_records,
+                menu_coverage_index=menu_coverage_index,
+                repo_root=repo_root,
+                inventory_evidence_path=inventory_evidence_path,
+            )
+        )
     entries.extend(
         _build_researched_unknown_page_entries(
             page_records=page_records,
@@ -888,6 +1031,8 @@ def _build_route_entries(
         report_matrix=report_matrix_path,
         page_research_files=page_files,
         sales_evidence=sales_evidence_path,
+        inventory_evidence=inventory_evidence_path,
+        inventory_outin_research=inventory_outin_research_path,
         menu_coverage_audit=menu_coverage_path,
     )
     return entries, sources
@@ -971,6 +1116,8 @@ def build_api_maturity_board(repo_root: Path, analysis_root: Path) -> dict[str, 
         "report_matrix": _repo_path(sources.report_matrix, repo_root) if sources.report_matrix else None,
         "page_research_files": [_repo_path(path, repo_root) for path in sources.page_research_files],
         "sales_evidence": _repo_path(sources.sales_evidence, repo_root) if sources.sales_evidence else None,
+        "inventory_evidence": _repo_path(sources.inventory_evidence, repo_root) if sources.inventory_evidence else None,
+        "inventory_outin_research": _repo_path(sources.inventory_outin_research, repo_root) if sources.inventory_outin_research else None,
         "menu_coverage_audit": _repo_path(sources.menu_coverage_audit, repo_root) if sources.menu_coverage_audit else None,
         "ledger_files": [str(relative_path) for _, _, relative_path in LEDGER_SPECS],
     }
