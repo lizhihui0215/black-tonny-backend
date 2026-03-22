@@ -137,21 +137,23 @@ Phase 0 完成标准：
 3. 状态板里全部已知路线都达到明确分类与下一步
 4. 全域门槛达成前，不允许任何路线开始正式写入 `capture`
 
-### Phase 1：全域风险地图完成后，再收口销售域
+### Phase 1：全域风险地图完成后，先执行销售首批 capture 准入
 
-目标：把销售域从“中高可信”推进到“可评估 capture 准入”。
+目标：把销售域从“已研究透”推进到“首批 capture 可持续留痕”，但暂不放开 `serving`。
 
 优先路线：
 
 - `SelSaleReport`
   - 定位：订单头候选源
-  - 当前 blocker：
-    - `sale_date` 不是稳定关联键
-    - `operator` 不是稳定关联键
+  - 当前结论：
+    - `sale_no` 已确认是唯一主关联键
+    - 订单头唯一性当前已通过
+    - 下一步是按 `sales_documents_head` 执行首批 capture 准入并观测回归指标
 - `GetDIYReportData(E004001008_2)`
   - 定位：明细行候选源
-  - 当前 blocker：
-    - `sale_no` 仍未达到完全稳定头行覆盖
+  - 当前结论：
+    - 已可按 `sale_no` 分流正常销售明细与逆向明细
+    - 下一步是按 `sales_document_lines` 与 `sales_reverse_document_lines` 分别留痕
 - `SelDeptSaleList`
   - 定位：研究 / 对账源
   - 当前结论：
@@ -161,9 +163,10 @@ Phase 0 完成标准：
 
 Phase 1 完成标准：
 
-1. 明确 `SelSaleReport` 与 `_2` 的头行关系是否足够支撑正式 capture
-2. 明确 `SelDeptSaleList` 是否继续只做对账源
-3. 至少把一条销售事实路线推进到“可接入 capture 主链”
+1. `sales_documents_head` 与 `sales_document_lines` 能在同一批次下稳定写入 capture
+2. `sales_reverse_document_lines` 被单独分流为研究留痕路线，不混入正常销售主链
+3. `SelDeptSaleList` 固定为研究 / 对账源
+4. 销售首批 capture 具备固定回归指标和异常阈值，但 `serving` 继续冻结
 
 ### Phase 2：库存域收口并形成第二批 capture 主链候选
 
@@ -275,7 +278,8 @@ Phase 3 完成标准：
 
 例如销售域：
 
-- 订单头与明细行可以并存
+- 正常销售订单头与明细行可以并存
+- `sales_reverse_document_lines` 只保留为逆向研究留痕路线
 - 但 `SelDeptSaleList` 在当前阶段只能做研究 / 对账
 - 不能把它和 `SelSaleReport`、`GetDIYReportData(E004001008_2)` 同时作为主源
 
@@ -327,11 +331,16 @@ Phase 3 完成标准：
 
 按当前状态板，下一步固定是：
 
-1. 先确认状态板里的全部路线都已完成风险地图
-2. 若全域门槛已达成：
-   - 销售域继续验证 `sale_no` 头行覆盖稳定度
-   - 销售域继续确认 `sale_date` / `operator` 不应进入主关联键
-   - 销售域把 `SelDeptSaleList` 固定为研究 / 对账源并记录单日 edge case
+1. 先执行销售首批 capture 准入：
+   - `sales_documents_head`
+   - `sales_document_lines`
+   - `sales_reverse_document_lines` 仅研究留痕
+2. 观测销售批次回归指标：
+   - 行数
+   - 单据数
+   - 件数
+   - 金额
+   - 与上一批偏差阈值
 3. 再推进库存域：
    - 继续拆 `type`
    - 继续拆 `doctype`

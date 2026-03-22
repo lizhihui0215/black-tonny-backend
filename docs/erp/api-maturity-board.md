@@ -21,8 +21,8 @@
 
 ## 3. 当前总体状态
 
-- 路线总数：`33`
-- 路线级风险地图已完成：`33 / 33`
+- 路线总数：`34`
+- 路线级风险地图已完成：`34 / 34`
 - 当前账号可见菜单覆盖审计完成：`是`
 - 当前账号可点击页面：`32`
 - 已覆盖页面：`32`
@@ -31,12 +31,12 @@
 - container_only：`8`
 - 全域门槛已达成：`是`
 - 已准入主链：`0`
-- 已 HTTP 回证：`3`
+- 已 HTTP 回证：`4`
 - 已单变量：`5`
 - 仅基线：`25`
 - 仅发现：`0`
 - 能跑但不能信：`25`
-- 中等可信：`8`
+- 中等可信：`9`
 - 高可信：`0`
 
 当前高优先级 blocker：
@@ -45,15 +45,15 @@
 - `8` 次：尚未完成 HTTP 回证
 - `4` 次：配置/设置类页面，默认不进入事实主链
 - `3` 次：尚未确认是否只保留结果快照定位
-- `1` 次：明细路线仍有 290 个仅明细出现的 sale_no，疑似退货/换货等逆向单据待分流
-- `1` 次：sale_date 当前不能作为稳定头行关联键
-- `1` 次：operator 当前不能作为稳定头行关联键
+- `1` 次：type/doctype 仍待继续跟进
+- `1` 次：stockflag 已确认切数据范围，但 1/2 是否正式并入主链仍待定
+- `1` 次：分页终止条件仍需继续收口
 
 ## 4. 分域状态
 
 | 域 | 路线数 | 风险地图完成 | 已HTTP回证 | 已单变量 | 仅基线 | 仅发现 | 中高可信 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 销售 | 12 | 12 | 3 | 0 | 9 | 0 | 3 |
+| 销售 | 13 | 13 | 4 | 0 | 9 | 0 | 4 |
 | 库存 | 9 | 9 | 0 | 5 | 4 | 0 | 5 |
 | 会员 | 5 | 5 | 0 | 0 | 5 | 0 | 0 |
 | 储值 | 3 | 3 | 0 | 0 | 3 | 0 | 0 |
@@ -65,11 +65,12 @@
 
 | 路线 | 来源分类 | 阶段 | 风险地图完成 | 覆盖状态 | 可信度 | 全域门槛阻塞 | 主链就绪 | 菜单路径 | 剩余问题 | 下一步 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| GetDIYReportData(E004001008_2) | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 销售清单 | 明细路线仍有 290 个仅明细出现的 sale_no，疑似退货/换货等逆向单据待分流 | 继续验证 sale_no 头行命中率与明细解释性，再评估 sales_order_items 正式映射 |
-| SelSaleReport | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 销售清单 | sale_date 当前不能作为稳定头行关联键；operator 当前不能作为稳定头行关联键 | 继续验证 sale_no 头行稳定度与订单头唯一性，再评估销售主链准入 |
+| GetDIYReportData(E004001008_2) | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 销售清单 | - | 已可按 sale_no 分流正常明细与逆向明细，准备首批 capture 准入 |
+| SelSaleReport | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 销售清单 | - | 已具备首批 capture 准入条件，保持 serving 冻结并先观测批次回归指标 |
 | 商品资料 / 待识别 | 主源候选 | 已基线 | 是 | covered | 能跑但不能信 | 否 | 否 | 基础资料 / 商品资料 | 尚未完成单变量探测；尚未完成 HTTP 回证 | 补 商品资料 的单变量探测与 HTTP 回证 |
 | 客户资料 / GetControlData | 主源候选 | 已基线 | 是 | covered | 能跑但不能信 | 否 | 否 | 基础资料 / 客户资料 | 尚未完成单变量探测；尚未完成 HTTP 回证 | 补 客户资料 的单变量探测与 HTTP 回证 |
 | SelDeptSaleList | 对账源 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 零售明细统计 | - | 保持研究/对账源定位，补充极端单日窗口的 edge case 说明即可 |
+| sales_reverse_document_lines | 研究留痕 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 销售清单 | - | 继续保持 capture 研究留痕，不进入 serving 或 dashboard 主链 |
 | 商品销售情况 / SelSaleReportData | 结果快照 | 已基线 | 是 | covered | 能跑但不能信 | 否 | 否 | 报表管理 / 综合分析 / 商品销售情况 | 尚未完成分页/枚举确认 | 补 商品销售情况 的分页/枚举确认，保持结果快照定位 |
 | 门店销售月报 / DeptMonthSalesReport | 结果快照 | 已基线 | 是 | covered | 能跑但不能信 | 否 | 否 | 报表管理 / 综合分析 / 门店销售月报 | 尚未完成分页/枚举确认 | 补 门店销售月报 的分页/枚举确认，保持结果快照定位 |
 | 参数设置 / page_baseline | 未采纳 | 已基线 | 是 | covered | 能跑但不能信 | 否 | 否 | 其他 / 参数设置 | 配置/设置类页面，默认不进入事实主链 | 保持 参数设置 为未采纳；若后续确认有长期分析价值，再单独评估 snapshot 路线 |
@@ -121,9 +122,9 @@
 
 ## 6. 当前推进顺序
 
-1. 先完成当前账号可见菜单覆盖审计，确认状态板已经从“已知全域”升级为“当前账号可见全域”。
-2. 再补 visible_but_untracked 页面基线，把 unknown page 收口成正常路线或明确标记为无数据页。
-3. 然后优先收口销售域的 `sale_no` 头行覆盖、`sale_date` / `operator` 的非主关联定位，以及 `SelDeptSaleList` 的单日 edge case。
+1. 当前账号可见全域风险地图已经完成，下一步先执行销售首批 capture 准入。
+2. 销售域正常路线按 `sales_documents_head` / `sales_document_lines` 进入 capture，`sales_reverse_document_lines` 只保留研究留痕。
+3. 在 serving 继续冻结的前提下，先观测销售批次回归指标与异常阈值表现。
 4. 再收口库存域的 `type`、`doctype` 与 `stockflag=1/2`。
 5. 最后才轮到会员 / 储值 / 流水单据的 HTTP 回证与主链准入评估。
 
@@ -140,7 +141,7 @@
   - `tmp/capture-samples/analysis/yeusoft-page-research-20260322-023512.json`
   - `tmp/capture-samples/analysis/yeusoft-page-research-20260322-024014.json`
   - `tmp/capture-samples/analysis/yeusoft-page-research-20260322-154152.json`
-- `sales_evidence`: `tmp/capture-samples/analysis/sales-evidence-chain-20260322-164854.json`
+- `sales_evidence`: `tmp/capture-samples/analysis/sales-evidence-chain-20260322-171553.json`
 - `menu_coverage_audit`: `tmp/capture-samples/analysis/menu-coverage-audit-20260322-154931.json`
 - `ledger_files`
   - `docs/erp/sales-ledger.md`

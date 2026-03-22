@@ -105,7 +105,7 @@
     - `ReceiveMoney`
   - 这些字段天然更像“单据头/销售单汇总”粒度
 - `SelSaleReport`
-  - 当前首屏返回 `3714` 行
+  - 当前首屏返回 `3717` 行
   - 真实字段包括：
     - `SaleNum`
     - `SaleDate`
@@ -159,9 +159,9 @@
 - `document_data_kind = document_header_candidate`
 - `detail_grid_kind = line_detail_schema`
 - `detail_data_kind = line_detail_candidate`
-- `candidate_join_keys = [operator, sale_date, sale_no, vip_card_no]`
+- `candidate_join_keys = [sale_no, sale_date, vip_card_no]`
 
-这进一步说明：当前最值得继续深挖的关联键仍然是 `sale_no`。
+这进一步说明：当前唯一应继续作为主关联键推进的是 `sale_no`；`sale_date` 与 `vip_card_no` 更适合做上下文或辅助校验。
 
 ---
 
@@ -170,7 +170,7 @@
 当前已经新增销售主线证据闭环脚本：
 
 - 脚本：`scripts/analyze_yeusoft_sales_evidence_chain.py`
-- 最新输出：`tmp/capture-samples/analysis/sales-evidence-chain-20260322-031807.json`
+- 最新输出：`tmp/capture-samples/analysis/sales-evidence-chain-20260322-171553.json`
 
 这条脚本会把：
 
@@ -185,10 +185,10 @@
 
 - `SelSaleReport`
   - 继续作为订单头候选源
-  - 当前真实返回 `3714` 行
+  - 当前真实返回 `3717` 行
 - `GetDIYReportData(menuid=E004001008, gridid=_2)`
   - 继续作为明细行候选源
-  - 当前真实返回 `9843` 行
+  - 当前真实返回 `9852` 行
 - `SelDeptSaleList`
   - 当前继续只作为研究/对账源
   - 不直接接入 `sales_orders / sales_order_items`
@@ -199,7 +199,6 @@
 
 - `sale_no`
 - `sale_date`
-- `operator`
 - `vip_card_no`
 
 当前结果：
@@ -213,9 +212,8 @@
   - 当前也表现为稳定关联键
   - 但它更适合辅助校验，不适合作为头行主键
 - `sale_date`
-  - 当前不能作为稳定头行关联键
-- `operator`
-  - 当前不能作为稳定头行关联键
+  - 当前不再作为主关联键推进
+  - 只保留为上下文字段
 
 当前 field ownership 也已明确：
 
@@ -270,13 +268,13 @@
 
 `零售明细统计` 与 `销售清单` 当前已经能确认不是同一层粒度：
 
-- `销售清单(_2)` 的 `9848` 行是明细行
-- `零售明细统计` 的 `1352` 行是按 `款号 / 颜色 / 吊牌价` 收口后的宽表结果
+- `销售清单(_2)` 的 `9852` 行是明细行
+- `零售明细统计` 的 `1353` 行是按 `款号 / 颜色 / 吊牌价` 收口后的宽表结果
 
 把 `销售清单(_2)` 按同一组键聚合后，当前已经能得到：
 
-- 聚合后行数：`1352`
-- 与 `零售明细统计` 的交集键数：`1352`
+- 聚合后行数：`1353`
+- 与 `零售明细统计` 的交集键数：`1353`
 - `quantity_total`：`一致`
 - `amount_total`：`可接受差异`
 
@@ -287,22 +285,44 @@
   - 因为这条宽表当前不提供稳定单据号
   - 它只能继续承担研究 / 对账源角色，不能承担订单数来源角色
 
-### 4.5 当前 issue flags
+### 4.5 正常销售与逆向单据分流
 
-当前自动标记的问题如下：
+最新证据闭环已经把销售明细按 `sale_no` 拆成三层：
 
-- `sale_date` 当前不能作为稳定头行关联键
-- `operator` 当前不能作为稳定头行关联键
+- `sales_documents_head`
+  - 只保留订单头里存在的 `sale_no`
+- `sales_document_lines`
+  - 只保留明细里且订单头也存在的 `sale_no`
+- `sales_reverse_document_lines`
+  - 只保留明细里存在、但订单头里不存在的 `sale_no`
 
-这意味着当前销售主线虽然已经能确认：
+当前这条逆向路线的结构化统计是：
 
-- 头路线是谁
-- 行路线是谁
-- `sale_no` 是否稳定
-- `Tiem` 是否真的切数据集
-- `零售明细统计` 与 `销售清单` 应该按“宽表 vs 明细行”来对账
+- `detail_only_sale_no_count = 290`
+- `detail_only_row_count = 771`
+- `negative_only_sale_no_count = 69`
+- `mixed_sign_sale_no_count = 221`
 
-但仍不应该立刻把 `零售明细统计` 升格成正式事实主源。
+当前结论：
+
+- 正常销售主链已经具备首批 capture 准入条件
+- 逆向单据不再混入正常销售主链
+- `sales_reverse_document_lines` 先只保留为 capture 研究留痕路线，不进入 `serving` 或 dashboard 主链
+
+### 4.6 当前 issue flags
+
+当前自动 `issue_flags` 已清零，销售主线的旧 blocker 已经移除：
+
+- `line_count`
+- `sales_list_order_count`
+- `SelDeptSaleList.edate`
+
+当前真正保留的边界是：
+
+- `sale_no` 是唯一主关联键
+- `sale_date`、`vip_card_no` 只做上下文或辅助校验
+- `SelDeptSaleList` 继续只做研究 / 对账源
+- `sales_reverse_document_lines` 继续只做研究留痕，不进入主链
 
 ---
 
@@ -383,6 +403,7 @@
   - 订单头：`SelSaleReport`
   - 明细行：`销售清单(gridid=_2)`
 - 对账候选：`零售明细统计`
+- 研究留痕候选：`sales_reverse_document_lines`
 - 快照候选：`商品销售情况`、`门店销售月报`
 - 暂缓直接采纳：`店铺零售清单`
 
@@ -455,13 +476,12 @@ python3 scripts/analyze_yeusoft_sales_menu_grains.py
 
 - `销售清单`
   - 第二轮页面研究已直接在同一份 manifest 里跑出两条真实数据路线：
-    - `SelSaleReport`：`3714` 行，稳定落在单据头路线
-    - `GetDIYReportData(gridid=_2)`：`9843` 行，稳定落在明细行路线
+    - `SelSaleReport`：`3717` 行，稳定落在单据头路线
+    - `GetDIYReportData(gridid=_2)`：`9852` 行，稳定落在明细行路线
   - 当前 `grain_route` 已明确是 `multi_grain_route`
-  - 当前候选关联键仍然是：
+  - 当前候选关联键已经收敛为：
     - `sale_no`
     - `sale_date`
-    - `operator`
     - `vip_card_no`
   - `parameter.Tiem=0/1/2` 在当前账号与时间范围下：
     - 行数一致
@@ -475,7 +495,7 @@ python3 scripts/analyze_yeusoft_sales_menu_grains.py
   - `parameter.Depart` 置空时没有稳定拿到可读响应，仍保留为后续范围审计项
 - `零售明细统计`
   - 第二轮页面研究确认它的主数据接口仍是 `SelDeptSaleList`
-  - `page=0,pagesize=20` 返回 `1352` 行
+  - `page=0,pagesize=20` 返回 `1353` 行
   - `page=1,pagesize=20` 返回 `20` 行，且 `row_set_signature` 明显变化
   - 这说明它至少具备“页码会切数据子集”的语义
   - 但当前页面级单变量证据还不足以把 `pagesize/page` 各自单独判成最终语义，所以仍保留 `needs_followup`
@@ -494,9 +514,9 @@ python3 scripts/analyze_yeusoft_sales_menu_grains.py
     - `gridid=_1`：按单据
   - 当前这两条路线都值得保留，但必须拆成不同粒度研究，不能直接视为重复接口
 - `零售明细统计`
-  - `page=0,pagesize=0` 与 `page=0,pagesize=20` 当前都返回 1352 行
+  - `page=0,pagesize=0` 与 `page=0,pagesize=20` 当前都返回 1353 行
   - `page=1,pagesize=20` 返回 20 行，说明分页语义不能直接忽略
-  - 后续应优先把它升级为正式分页抓取候选
+  - 后续继续保留为正式分页对账候选，不提升为销售事实主源
 
 ### 7.6 正式分页抓取策略
 
@@ -514,8 +534,8 @@ python3 scripts/analyze_yeusoft_sales_menu_grains.py
   - 不适用首屏大 `pagesize` 探测
   - 当前仍按单请求 fresh 抓取研究
 - `零售明细统计`
-  - 当前已确认 `page=0,pagesize=20` 首屏直接返回 `1352` 行
-  - `20 / 100 / 1000 / 10000 / 0` 的首屏返回签名一致，都是同一批 `1352` 行
+  - 当前已确认 `page=0,pagesize=20` 首屏直接返回 `1353` 行
+  - `20 / 100 / 1000 / 10000 / 0` 的首屏返回签名一致，都是同一批 `1353` 行
   - 这已经强烈说明首屏存在“超页即全量”的特殊行为
   - 当前推荐第一页大小继续保持 `20`
   - 大页参数目前只会被标记为 `large_page_ignored`，不会进入正式抓取默认值
@@ -526,11 +546,9 @@ python3 scripts/analyze_yeusoft_sales_menu_grains.py
 
 ## 8. 后续待验证事项
 
-1. `销售清单` 的 `parameter.Tiem` 是否是视图切换枚举
-2. `Depart` 空值、指定门店、当前门店三种情况下是否返回相同范围
-3. `零售明细统计` 的 `page=0/pagesize=0` 是否真等于全量
-4. `商品销售情况` 是否存在可用于毛利或成本的字段
-5. 不同角色账号下 `销售清单.成本价` 是否仍然全为空
-6. `gridid=_1` 和 `gridid=_2` 的列定义差异是否稳定，是否能明确区分“单据头”与“单据行”
-7. `SelSaleReport` 是否可作为订单头候选源，供 dashboard 的订单数/客单价口径使用
-8. `SaleNum` 与 `零售单号` 是否在真实样本里能稳定建立 1:N 头行关系
+1. `Depart` 空值、指定门店、当前门店三种情况下是否返回相同范围
+2. `sales_reverse_document_lines` 里的 `290` 个 `sale_no` 是否能进一步拆成退货 / 换货 / 逆向流水
+3. `商品销售情况` 是否存在可用于毛利或成本的字段
+4. 不同角色账号下 `销售清单.成本价` 是否仍然全为空
+5. `SelSaleReport` 是否可作为订单头候选源，供 dashboard 的订单数/客单价口径使用
+6. `sale_no` 驱动的头 / 行 / 逆向三路分流，在连续批次下是否保持稳定

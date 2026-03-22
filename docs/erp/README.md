@@ -176,16 +176,16 @@
 
 ## 6. 推荐阅读顺序
 
-1. 先看 `api-maturity-board.md`，确认做到哪里、是否可信、还能不能进主链
-2. 再看 `capture-ingestion-roadmap.md`，确认下一步按什么顺序推进到 `capture`
+1. 先看 [api-maturity-board.md](./api-maturity-board.md)，确认做到哪里、是否可信、还能不能进主链
+2. 再看 [capture-ingestion-roadmap.md](./capture-ingestion-roadmap.md)，确认下一步按什么顺序推进到 `capture`
 3. 再看这份总览，理解统一边界、术语和研究方法
 4. 再看分域台账，理解接口、过滤条件和抓取策略
 5. 最后看成本字段可见性专题，确认当前成本相关能力边界
 
 如果是为了继续实现抓取链，建议再结合这些 backend 文档一起看：
 
-- `docs/two-database-architecture.md`
-- `docs/dashboard/08-summary-capture-mapping.md`
+- [docs/two-database-architecture.md](../two-database-architecture.md)
+- [docs/dashboard/summary-capture-mapping.md](../dashboard/summary-capture-mapping.md)
 
 ---
 
@@ -242,6 +242,7 @@ python3 scripts/fetch_yeusoft_report_payloads.py --mode explore --explore-target
 - `SelSaleReport`：订单头候选源
 - `GetDIYReportData(menuid=E004001008, gridid=_2)`：明细行候选源
 - `SelDeptSaleList`：研究/对账源
+- `sales_reverse_document_lines`：逆向明细研究留痕路线
 
 - 默认输出到：
   - `tmp/capture-samples/analysis/sales-evidence-chain-*.json`
@@ -250,7 +251,24 @@ python3 scripts/fetch_yeusoft_report_payloads.py --mode explore --explore-target
   - 头/行候选关联统计
   - `parameter.Tiem / BeginDate / EndDate / Depart` 的 HTTP 回证语义
   - `SelDeptSaleList` 的分页差异与对账摘要
+  - `capture_admission`，用于判断正常销售两条路线是否已具备首批 capture 准入条件
   - `issue_flags`，用于持续标记尚未收口的问题
+
+当前还新增了一条销售首批 capture 准入脚本：
+
+```bash
+.venv/bin/python scripts/admit_yeusoft_sales_capture.py
+```
+
+这条脚本会：
+
+- 纯 HTTP fresh 抓取 `SelSaleReport` 与 `GetDIYReportData(E004001008_2)`
+- 以 `sale_no` 为唯一主关联键，把销售明细拆成：
+  - `sales_documents_head`
+  - `sales_document_lines`
+  - `sales_reverse_document_lines`
+- 把正常销售路线写入 capture
+- 把逆向路线只做研究留痕，不推进 `serving`
 
 当前还新增了一条菜单覆盖审计脚本：
 

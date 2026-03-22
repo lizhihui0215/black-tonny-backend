@@ -177,6 +177,7 @@ capture_endpoint_payloads = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("capture_batch_id", String(64), nullable=False, index=True),
     Column("source_endpoint", String(128), nullable=False, index=True),
+    Column("route_kind", String(32), nullable=True, index=True),
     Column("page_cursor", String(128), nullable=True),
     Column("page_no", Integer, nullable=True),
     Column("request_params", Text, nullable=True),

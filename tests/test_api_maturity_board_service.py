@@ -113,10 +113,7 @@ def test_build_api_maturity_board_splits_sales_routes_and_marks_inventory_follow
     _write(analysis_root / "yeusoft-page-research-20260322-000100.json", json.dumps(page_research, ensure_ascii=False))
 
     sales_evidence = {
-        "issue_flags": [
-            "sale_date 当前不能作为稳定头行关联键",
-            "operator 当前不能作为稳定头行关联键",
-        ],
+        "issue_flags": [],
         "join_key_analysis": {
             "candidate_keys": [
                 {"key": "sale_no", "stable_candidate": True},
@@ -124,6 +121,18 @@ def test_build_api_maturity_board_splits_sales_routes_and_marks_inventory_follow
                 {"key": "operator", "stable_candidate": False},
                 {"key": "vip_card_no", "stable_candidate": True},
             ]
+        },
+        "detail_only_sale_no_profile": {
+            "detail_only_sale_no_count": 12,
+            "detail_only_row_count": 34,
+        },
+        "capture_admission": {
+            "head_document_uniqueness": {
+                "head_document_uniqueness_ok": True,
+            },
+            "reverse_split_ready": True,
+            "capture_admission_ready": True,
+            "reverse_route_blocking_issues": [],
         },
     }
     _write(analysis_root / "sales-evidence-chain-20260322-000200.json", json.dumps(sales_evidence, ensure_ascii=False))
@@ -223,10 +232,12 @@ def test_build_api_maturity_board_splits_sales_routes_and_marks_inventory_follow
     assert routes["SelSaleReport"]["reliability_status"] == "中等可信"
     assert routes["SelSaleReport"]["menu_path"] == ["报表管理", "零售报表", "销售清单"]
     assert routes["SelSaleReport"]["coverage_status"] == "covered"
-    assert routes["SelSaleReport"]["blocking_issues"] == [
-        "sale_date 当前不能作为稳定头行关联键",
-        "operator 当前不能作为稳定头行关联键",
-    ]
+    assert routes["SelSaleReport"]["blocking_issues"] == []
+    assert routes["SelSaleReport"]["capture_admission_ready"] is True
+    assert routes["GetDIYReportData(E004001008_2)"]["blocking_issues"] == []
+    assert routes["GetDIYReportData(E004001008_2)"]["reverse_split_ready"] is True
+    assert "sales_reverse_document_lines" in routes
+    assert routes["sales_reverse_document_lines"]["source_kind"] == "研究留痕"
     assert routes["SelDeptSaleList"]["role"] == "对账源"
     assert routes["SelDeptSaleList"]["blocking_issues"] == []
     assert routes["库存明细统计 / SelDeptStockWaitList"]["stage"] == "已单变量"
@@ -238,11 +249,11 @@ def test_build_api_maturity_board_splits_sales_routes_and_marks_inventory_follow
     assert "未知销售页面 / unknown_page_needs_baseline" in routes
     assert routes["未知销售页面 / unknown_page_needs_baseline"]["source_kind"] == "待识别"
     assert routes["未知销售页面 / unknown_page_needs_baseline"]["coverage_status"] == "visible_but_untracked"
-    assert board["summary"]["research_map_complete_count"] == 5
+    assert board["summary"]["research_map_complete_count"] == 6
     assert board["summary"]["menu_coverage_audit_complete"] is True
     assert board["summary"]["global_risk_map_complete"] is False
     assert board["summary"]["menu_coverage"]["visible_but_untracked_count"] == 1
-    assert board["summary"]["total_routes"] == 8
+    assert board["summary"]["total_routes"] == 9
 
 
 def test_render_api_maturity_board_markdown_includes_status_sections():

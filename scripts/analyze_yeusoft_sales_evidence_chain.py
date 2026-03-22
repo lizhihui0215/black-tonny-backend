@@ -22,6 +22,9 @@ from app.services.erp_research_service import (  # noqa: E402
     extract_normalized_table_rows,
     set_nested_payload_value,
 )
+from app.services.sales_capture_admission_service import (  # noqa: E402
+    build_sales_capture_admission_bundle,
+)
 from app.services.retail_detail_stats_service import (  # noqa: E402
     build_retail_detail_page_payload,
     build_sales_reconciliation_report,
@@ -151,9 +154,6 @@ def build_issue_flags(
     issues: list[str] = []
     if not join_analysis.get("sale_no_head_line_link_stable"):
         issues.append("sale_no 头行关联仍不稳定，暂不进入正式 sales_orders / sales_order_items 映射")
-    for join_key in join_analysis.get("candidate_keys", []):
-        if join_key.get("key") in {"sale_date", "operator"} and not join_key.get("stable_candidate"):
-            issues.append(f"{join_key['key']} 当前不能作为稳定头行关联键")
     if sales_parameter_semantics.get("parameter.Depart", {}).get("semantics") == "insufficient_evidence":
         issues.append("销售清单 parameter.Depart 的范围语义仍未确认")
     if sales_parameter_semantics.get("parameter.BeginDate", {}).get("semantics") == "insufficient_evidence":
@@ -315,6 +315,10 @@ def main() -> int:
         detail_payload=detail_data,
     )
     detail_only_sale_no_profile = build_detail_only_sale_no_profile(
+        document_payload=document_data,
+        detail_payload=detail_data,
+    )
+    capture_admission = build_sales_capture_admission_bundle(
         document_payload=document_data,
         detail_payload=detail_data,
     )
@@ -516,6 +520,15 @@ def main() -> int:
         "route_pairing": grain_analysis,
         "join_key_analysis": join_analysis,
         "detail_only_sale_no_profile": detail_only_sale_no_profile,
+        "capture_admission": {
+            "head_document_uniqueness": capture_admission["head_document_uniqueness"],
+            "normal_route_summary": capture_admission["normal_route_summary"],
+            "reverse_route_summary": capture_admission["reverse_route_summary"],
+            "reverse_split_ready": capture_admission["reverse_split_ready"],
+            "capture_admission_ready": capture_admission["capture_admission_ready"],
+            "reverse_route_blocking_issues": capture_admission["reverse_route_blocking_issues"],
+            "context_fields": capture_admission["context_fields"],
+        },
         "sales_http_verification": {
             "document_route": {
                 "analysis": document_analysis,

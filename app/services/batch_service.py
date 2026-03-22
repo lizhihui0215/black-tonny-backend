@@ -67,6 +67,7 @@ def append_capture_payload(
     capture_batch_id: str,
     *,
     source_endpoint: str,
+    route_kind: str | None = None,
     payload: dict[str, Any] | list[Any],
     request_params: dict[str, Any] | None = None,
     page_cursor: str | None = None,
@@ -84,6 +85,7 @@ def append_capture_payload(
             insert(capture_endpoint_payloads).values(
                 capture_batch_id=capture_batch_id,
                 source_endpoint=source_endpoint,
+                route_kind=route_kind,
                 page_cursor=page_cursor,
                 page_no=page_no,
                 request_params=request_params_json,

@@ -41,9 +41,10 @@ STAGE_ORDER = {
 ROLE_ORDER = {
     "主源候选": 0,
     "对账源": 1,
-    "结果快照": 2,
-    "未采纳": 3,
-    "待识别": 4,
+    "研究留痕": 2,
+    "结果快照": 3,
+    "未采纳": 4,
+    "待识别": 5,
 }
 
 RELIABILITY_ORDER = {
@@ -423,16 +424,16 @@ def _build_sales_evidence_entries(
     issue_flags = list(sales_evidence.get("issue_flags") or [])
     join_analysis = sales_evidence.get("join_key_analysis") or {}
     detail_only_profile = sales_evidence.get("detail_only_sale_no_profile") or {}
+    capture_admission = sales_evidence.get("capture_admission") or {}
     candidate_keys = {
         item.get("key"): item for item in join_analysis.get("candidate_keys", []) if item.get("key")
     }
-    detail_overlap_issue = "sale_no 头行关联虽最稳定，但 detail_overlap_rate 仍未达到 100%"
     detail_only_sale_no_count = int(detail_only_profile.get("detail_only_sale_no_count") or 0)
-    if detail_only_sale_no_count:
-        detail_overlap_issue = (
-            f"明细路线仍有 {detail_only_sale_no_count} 个仅明细出现的 sale_no，"
-            "疑似退货/换货等逆向单据待分流"
-        )
+    reverse_split_ready = bool(capture_admission.get("reverse_split_ready"))
+    capture_admission_ready = bool(capture_admission.get("capture_admission_ready"))
+    reverse_route_blocking_issues = list(capture_admission.get("reverse_route_blocking_issues") or [])
+    head_document_uniqueness = capture_admission.get("head_document_uniqueness") or {}
+    head_document_uniqueness_ok = bool(head_document_uniqueness.get("head_document_uniqueness_ok"))
 
     shared_analysis_sources = [_repo_path(sales_evidence_path, repo_root)]
     if sales_page:
@@ -456,19 +457,23 @@ def _build_sales_evidence_entries(
         "research_map_complete": True,
         "ingestion_blocked_by_global_gate": True,
         "mainline_ready": False,
-        "blocking_issues": [
-            "sale_date 当前不能作为稳定头行关联键",
-            "operator 当前不能作为稳定头行关联键",
-        ],
-        "next_action": "继续验证 sale_no 头行稳定度与订单头唯一性，再评估销售主链准入",
+        "blocking_issues": [] if head_document_uniqueness_ok else ["订单头唯一性仍待验证"],
+        "next_action": (
+            "已具备首批 capture 准入条件，保持 serving 冻结并先观测批次回归指标"
+            if head_document_uniqueness_ok and capture_admission_ready
+            else "验证订单头唯一性并准备首批 capture 准入"
+        ),
         "current_judgment": "订单头候选源",
         "capture_strategy": "单请求",
         "risk_labels": sales_route["risk_labels"],
         "ledger_path": sales_route["ledger_path"],
         "analysis_sources": shared_analysis_sources,
         "candidate_join_keys": [
-            key for key in ("sale_no", "sale_date", "operator", "vip_card_no") if key in candidate_keys
+            key for key in ("sale_no", "sale_date", "vip_card_no") if key in candidate_keys
         ],
+        "reverse_split_ready": reverse_split_ready,
+        "capture_admission_ready": head_document_uniqueness_ok and capture_admission_ready,
+        "reverse_route_blocking_issues": [],
         **sales_coverage,
     }
     detail_entry = {
@@ -486,18 +491,53 @@ def _build_sales_evidence_entries(
         "research_map_complete": True,
         "ingestion_blocked_by_global_gate": True,
         "mainline_ready": False,
-        "blocking_issues": [
-            detail_overlap_issue,
-        ],
-        "next_action": "继续验证 sale_no 头行命中率与明细解释性，再评估 sales_order_items 正式映射",
+        "blocking_issues": reverse_route_blocking_issues,
+        "next_action": (
+            "已可按 sale_no 分流正常明细与逆向明细，准备首批 capture 准入"
+            if reverse_split_ready and capture_admission_ready
+            else "按 sale_no 分流正常/逆向路线，并验证逆向分流稳定性"
+        ),
         "current_judgment": "明细行候选源",
         "capture_strategy": "单请求",
         "risk_labels": sales_route["risk_labels"],
         "ledger_path": sales_route["ledger_path"],
         "analysis_sources": shared_analysis_sources,
         "candidate_join_keys": [
-            key for key in ("sale_no", "sale_date", "operator", "vip_card_no") if key in candidate_keys
+            key for key in ("sale_no", "sale_date", "vip_card_no") if key in candidate_keys
         ],
+        "reverse_split_ready": reverse_split_ready,
+        "capture_admission_ready": reverse_split_ready and capture_admission_ready,
+        "reverse_route_blocking_issues": reverse_route_blocking_issues,
+        **sales_coverage,
+    }
+    reverse_entry = {
+        "domain": "sales",
+        "domain_label": "销售",
+        "route": "sales_reverse_document_lines",
+        "title": "销售清单",
+        "endpoint": "sales_reverse_document_lines",
+        "role": "研究留痕",
+        "source_kind": "研究留痕",
+        "stage": "已HTTP回证",
+        "trust_level": "中",
+        "reliability_status": "中等可信",
+        "coverage_scope": ["当前账号范围", "逆向/退换货疑似单据", "仅保留 capture 研究留痕"],
+        "research_map_complete": True,
+        "ingestion_blocked_by_global_gate": True,
+        "mainline_ready": False,
+        "blocking_issues": reverse_route_blocking_issues,
+        "next_action": "继续保持 capture 研究留痕，不进入 serving 或 dashboard 主链",
+        "current_judgment": (
+            f"已识别 {detail_only_sale_no_count} 个仅明细出现的 sale_no，需作为逆向路线单独保留"
+        ),
+        "capture_strategy": "单请求",
+        "risk_labels": ["逆向路线", "退货/换货待分流"],
+        "ledger_path": sales_route["ledger_path"],
+        "analysis_sources": shared_analysis_sources,
+        "candidate_join_keys": ["sale_no"],
+        "reverse_split_ready": reverse_split_ready,
+        "capture_admission_ready": False,
+        "reverse_route_blocking_issues": reverse_route_blocking_issues,
         **sales_coverage,
     }
     retail_entry = {
@@ -523,9 +563,12 @@ def _build_sales_evidence_entries(
         "ledger_path": retail_route["ledger_path"],
         "analysis_sources": shared_analysis_sources,
         "issue_flags": issue_flags,
+        "reverse_split_ready": False,
+        "capture_admission_ready": False,
+        "reverse_route_blocking_issues": [],
         **retail_coverage,
     }
-    return [document_entry, detail_entry, retail_entry]
+    return [document_entry, detail_entry, reverse_entry, retail_entry]
 
 
 def _build_unknown_page_entries(
@@ -1036,9 +1079,9 @@ def render_api_maturity_board_markdown(board: dict[str, Any]) -> str:
     lines.extend(["## 6. 当前推进顺序", ""])
     lines.extend(
         [
-            "1. 先完成当前账号可见菜单覆盖审计，确认状态板已经从“已知全域”升级为“当前账号可见全域”。",
-            "2. 再补 visible_but_untracked 页面基线，把 unknown page 收口成正常路线或明确标记为无数据页。",
-            "3. 然后优先收口销售域的 `sale_no` 头行覆盖、`sale_date` / `operator` 的非主关联定位，以及 `SelDeptSaleList` 的单日 edge case。",
+            "1. 当前账号可见全域风险地图已经完成，下一步先执行销售首批 capture 准入。",
+            "2. 销售域正常路线按 `sales_documents_head` / `sales_document_lines` 进入 capture，`sales_reverse_document_lines` 只保留研究留痕。",
+            "3. 在 serving 继续冻结的前提下，先观测销售批次回归指标与异常阈值表现。",
             "4. 再收口库存域的 `type`、`doctype` 与 `stockflag=1/2`。",
             "5. 最后才轮到会员 / 储值 / 流水单据的 HTTP 回证与主链准入评估。",
             "",
