@@ -422,9 +422,17 @@ def _build_sales_evidence_entries(
     retail_coverage = _coverage_metadata(resolve_menu_coverage_page("零售明细统计", menu_coverage_index))
     issue_flags = list(sales_evidence.get("issue_flags") or [])
     join_analysis = sales_evidence.get("join_key_analysis") or {}
+    detail_only_profile = sales_evidence.get("detail_only_sale_no_profile") or {}
     candidate_keys = {
         item.get("key"): item for item in join_analysis.get("candidate_keys", []) if item.get("key")
     }
+    detail_overlap_issue = "sale_no 头行关联虽最稳定，但 detail_overlap_rate 仍未达到 100%"
+    detail_only_sale_no_count = int(detail_only_profile.get("detail_only_sale_no_count") or 0)
+    if detail_only_sale_no_count:
+        detail_overlap_issue = (
+            f"明细路线仍有 {detail_only_sale_no_count} 个仅明细出现的 sale_no，"
+            "疑似退货/换货等逆向单据待分流"
+        )
 
     shared_analysis_sources = [_repo_path(sales_evidence_path, repo_root)]
     if sales_page:
@@ -479,7 +487,7 @@ def _build_sales_evidence_entries(
         "ingestion_blocked_by_global_gate": True,
         "mainline_ready": False,
         "blocking_issues": [
-            "sale_no 头行关联虽最稳定，但 detail_overlap_rate 仍未达到 100%",
+            detail_overlap_issue,
         ],
         "next_action": "继续验证 sale_no 头行命中率与明细解释性，再评估 sales_order_items 正式映射",
         "current_judgment": "明细行候选源",

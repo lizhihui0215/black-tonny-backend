@@ -19,6 +19,7 @@ from app.services.erp_research_service import (  # noqa: E402
     build_sales_head_line_join_analysis,
     build_sales_menu_grain_analysis,
     classify_http_probe_semantics,
+    extract_normalized_table_rows,
     set_nested_payload_value,
 )
 from app.services.retail_detail_stats_service import (  # noqa: E402
@@ -175,6 +176,70 @@ def build_issue_flags(
     return sorted(set(issues))
 
 
+def build_detail_only_sale_no_profile(*, document_payload: dict[str, Any] | list[Any], detail_payload: dict[str, Any] | list[Any]) -> dict[str, Any]:
+    document_rows = extract_normalized_table_rows(document_payload)
+    detail_rows = extract_normalized_table_rows(detail_payload)
+
+    document_sale_nos = {
+        str(row.get("sale_no")).strip()
+        for row in document_rows
+        if row.get("sale_no") not in (None, "", "null")
+    }
+
+    detail_only_rows: list[dict[str, Any]] = []
+    detail_only_sale_signs: dict[str, dict[str, set[str]]] = {}
+    for row in detail_rows:
+        sale_no = row.get("sale_no")
+        if sale_no in (None, "", "null"):
+            continue
+        normalized_sale_no = str(sale_no).strip()
+        if normalized_sale_no in document_sale_nos:
+            continue
+        detail_only_rows.append(row)
+        bucket = detail_only_sale_signs.setdefault(normalized_sale_no, {"quantity_signs": set(), "amount_signs": set()})
+        quantity = float(row.get("quantity") or 0)
+        amount = float(row.get("sales_amount") or 0)
+        bucket["quantity_signs"].add("neg" if quantity < 0 else "pos" if quantity > 0 else "zero")
+        bucket["amount_signs"].add("neg" if amount < 0 else "pos" if amount > 0 else "zero")
+
+    negative_only_sale_no_count = 0
+    positive_only_sale_no_count = 0
+    mixed_sign_sale_no_count = 0
+    for signs in detail_only_sale_signs.values():
+        quantity_signs = signs["quantity_signs"]
+        amount_signs = signs["amount_signs"]
+        if quantity_signs == {"neg"} and amount_signs == {"neg"}:
+            negative_only_sale_no_count += 1
+        elif quantity_signs == {"pos"} and amount_signs == {"pos"}:
+            positive_only_sale_no_count += 1
+        else:
+            mixed_sign_sale_no_count += 1
+
+    sample_rows = [
+        {
+            "sale_no": row.get("sale_no"),
+            "sale_date": row.get("sale_date"),
+            "style_code": row.get("style_code"),
+            "color": row.get("color"),
+            "size": row.get("size"),
+            "quantity": row.get("quantity"),
+            "sales_amount": row.get("sales_amount"),
+            "vip_card_no": row.get("vip_card_no"),
+            "operator": row.get("operator"),
+        }
+        for row in detail_only_rows[:10]
+    ]
+
+    return {
+        "detail_only_sale_no_count": len(detail_only_sale_signs),
+        "detail_only_row_count": len(detail_only_rows),
+        "negative_only_sale_no_count": negative_only_sale_no_count,
+        "positive_only_sale_no_count": positive_only_sale_no_count,
+        "mixed_sign_sale_no_count": mixed_sign_sale_no_count,
+        "sample_rows": sample_rows,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="构建 Yeusoft 销售主线的页面研究 + 纯 HTTP 回证证据闭环。")
     parser.add_argument("--readme", default=str(README_PATH), help="账号说明文件路径")
@@ -246,6 +311,10 @@ def main() -> int:
         detail_data_payload=detail_data,
     )
     join_analysis = build_sales_head_line_join_analysis(
+        document_payload=document_data,
+        detail_payload=detail_data,
+    )
+    detail_only_sale_no_profile = build_detail_only_sale_no_profile(
         document_payload=document_data,
         detail_payload=detail_data,
     )
@@ -446,6 +515,7 @@ def main() -> int:
         },
         "route_pairing": grain_analysis,
         "join_key_analysis": join_analysis,
+        "detail_only_sale_no_profile": detail_only_sale_no_profile,
         "sales_http_verification": {
             "document_route": {
                 "analysis": document_analysis,

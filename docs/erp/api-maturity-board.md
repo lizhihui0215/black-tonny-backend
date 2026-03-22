@@ -45,7 +45,7 @@
 - `8` 次：尚未完成 HTTP 回证
 - `4` 次：配置/设置类页面，默认不进入事实主链
 - `3` 次：尚未确认是否只保留结果快照定位
-- `1` 次：sale_no 头行关联虽最稳定，但 detail_overlap_rate 仍未达到 100%
+- `1` 次：明细路线仍有 290 个仅明细出现的 sale_no，疑似退货/换货等逆向单据待分流
 - `1` 次：sale_date 当前不能作为稳定头行关联键
 - `1` 次：operator 当前不能作为稳定头行关联键
 
@@ -65,7 +65,7 @@
 
 | 路线 | 来源分类 | 阶段 | 风险地图完成 | 覆盖状态 | 可信度 | 全域门槛阻塞 | 主链就绪 | 菜单路径 | 剩余问题 | 下一步 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| GetDIYReportData(E004001008_2) | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 销售清单 | sale_no 头行关联虽最稳定，但 detail_overlap_rate 仍未达到 100% | 继续验证 sale_no 头行命中率与明细解释性，再评估 sales_order_items 正式映射 |
+| GetDIYReportData(E004001008_2) | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 销售清单 | 明细路线仍有 290 个仅明细出现的 sale_no，疑似退货/换货等逆向单据待分流 | 继续验证 sale_no 头行命中率与明细解释性，再评估 sales_order_items 正式映射 |
 | SelSaleReport | 主源候选 | 已HTTP回证 | 是 | covered | 中等可信 | 否 | 否 | 报表管理 / 零售报表 / 销售清单 | sale_date 当前不能作为稳定头行关联键；operator 当前不能作为稳定头行关联键 | 继续验证 sale_no 头行稳定度与订单头唯一性，再评估销售主链准入 |
 | 商品资料 / 待识别 | 主源候选 | 已基线 | 是 | covered | 能跑但不能信 | 否 | 否 | 基础资料 / 商品资料 | 尚未完成单变量探测；尚未完成 HTTP 回证 | 补 商品资料 的单变量探测与 HTTP 回证 |
 | 客户资料 / GetControlData | 主源候选 | 已基线 | 是 | covered | 能跑但不能信 | 否 | 否 | 基础资料 / 客户资料 | 尚未完成单变量探测；尚未完成 HTTP 回证 | 补 客户资料 的单变量探测与 HTTP 回证 |
@@ -140,7 +140,7 @@
   - `tmp/capture-samples/analysis/yeusoft-page-research-20260322-023512.json`
   - `tmp/capture-samples/analysis/yeusoft-page-research-20260322-024014.json`
   - `tmp/capture-samples/analysis/yeusoft-page-research-20260322-154152.json`
-- `sales_evidence`: `tmp/capture-samples/analysis/sales-evidence-chain-20260322-162255.json`
+- `sales_evidence`: `tmp/capture-samples/analysis/sales-evidence-chain-20260322-164854.json`
 - `menu_coverage_audit`: `tmp/capture-samples/analysis/menu-coverage-audit-20260322-154931.json`
 - `ledger_files`
   - `docs/erp/sales-ledger.md`
