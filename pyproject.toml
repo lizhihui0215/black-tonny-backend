@@ -23,6 +23,9 @@ dev = [
   "httpx>=0.27,<1.0",
   "pytest>=8.2,<9.0",
 ]
+research = [
+  "playwright>=1.53,<2.0",
+]
 
 [tool.setuptools]
 packages = [

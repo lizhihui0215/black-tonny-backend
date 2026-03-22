@@ -17,6 +17,9 @@
 | 每日流水单 | `JyApi/ReconciliationAnalysis/SelectRetailDocPaymentSlip` | `POST` | `Authorization` | `MenuID` `SearchType` `Search` `LastDate` `BeginDate` `EndDate` | 支付流水结果接口，高价值但需继续摸清查询语义 | 需要扫枚举 | 结果快照 |
 | 出入库单据 | `YisEposReport/SelOutInStockReport` | `POST` | `token` | `bdate` `edate` `datetype` `type` `doctype` `spenum` `warecause` `page` `pagesize` | 单据明细候选，和库存域强相关 | 需要扫枚举 | 自动翻页 |
 | 门店销售月报 | `JyApi/DeptMonthSalesReport/DeptMonthSalesReport` | `POST` | `Authorization` | `Type` `BeginDate` `EndDate` `YBeginDate` `YEndDate` `MBeginDate` `MEndDate` `PageIndex` `PageSize` | 经营月报结果视图 | 需要翻页 | 结果快照 |
+| 退货明细 | `GetViewGridList` | `页面基线` | `浏览器研究` | `待补页面查询条件` | 当前更像退货业务明细页，已完成页面基线，但稳定主接口仍待识别 | 主接口待识别 | 待识别 |
+| 收货确认 | `GetViewGridList` | `页面基线` | `浏览器研究` | `默认加载` | 当前更像收货确认单据页，已完成页面基线，但稳定主接口仍待识别 | 主接口待识别 | 待识别 |
+| 门店盘点单 | `GetViewGridList` | `页面基线` | `浏览器研究` | `默认加载` | 当前更像盘点单据页，已完成页面基线，但稳定主接口仍待识别 | 主接口待识别 | 待识别 |
 
 ---
 

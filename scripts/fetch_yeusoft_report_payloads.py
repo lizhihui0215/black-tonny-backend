@@ -23,10 +23,13 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from app.services.erp_research_service import (
     analyze_response_payload,
+    build_first_page_size_probe_cases,
     build_exploration_cases,
     find_latest_sample,
     get_exploration_strategy,
     get_exploration_target_titles,
+    resolve_first_page_probe_sizes,
+    should_trigger_edge_page_probe,
     should_persist_capture,
     summarize_exploration_results,
 )
@@ -758,6 +761,8 @@ def run_explore_mode(
     refreshed: bool,
     max_pages: int,
     enum_limit: int,
+    edge_page_sizes: list[int],
+    edge_trigger_threshold: int,
 ) -> int:
     run_dir = output_root / now_local().strftime("%Y%m%d-%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -775,6 +780,8 @@ def run_explore_mode(
         "token_refreshed": refreshed,
         "max_pages": max_pages,
         "enum_limit": enum_limit,
+        "edge_page_sizes": edge_page_sizes,
+        "edge_trigger_threshold": edge_trigger_threshold,
         "reports": [],
         "has_failures": False,
     }
@@ -792,54 +799,85 @@ def run_explore_mode(
             strategy,
             max_pages=max_pages,
             enum_limit=enum_limit,
+            edge_page_sizes=[],
         )
 
         probe_results: list[dict[str, Any]] = []
-        for case_index, case in enumerate(cases, start=1):
-            result_entry = {
-                "case_id": case["case_id"],
-                "kind": case["kind"],
-                "label": case["label"],
-                "probe_context": case["probe_context"],
-                "request_payload": case["payload"],
-            }
-            try:
-                status, payload = perform_request(transport, url, case["payload"], auth_headers)
-                analysis = analyze_response_payload(payload)
-                result_entry.update(
-                    {
-                        "status": status,
-                        "analysis": analysis,
-                    }
-                )
-                if capture_batch_id:
-                    append_capture_payload_safe(
-                        capture_batch_id,
-                        source_endpoint=spec.source_endpoint,
-                        payload=payload,
-                        request_params={
-                            "mode": "explore",
-                            "title": spec.title,
-                            "url": url,
-                            "payload": case["payload"],
-                            "report_index": report_index,
-                            "case_index": case_index,
-                            "case_id": case["case_id"],
-                            "label": case["label"],
-                        },
-                        page_no=case_index,
-                    )
-            except Exception as exc:  # pragma: no cover - network/runtime failure path
-                meta["has_failures"] = True
-                result_entry.update(
-                    {
-                        "status": None,
-                        "error": str(exc),
-                    }
-                )
-            probe_results.append(result_entry)
+        case_counter = 0
 
+        def execute_cases(case_batch: list[dict[str, Any]]) -> None:
+            nonlocal case_counter
+            for case in case_batch:
+                case_counter += 1
+                result_entry = {
+                    "case_id": case["case_id"],
+                    "kind": case["kind"],
+                    "label": case["label"],
+                    "probe_context": case["probe_context"],
+                    "request_payload": case["payload"],
+                }
+                try:
+                    status, payload = perform_request(transport, url, case["payload"], auth_headers)
+                    analysis = analyze_response_payload(payload)
+                    result_entry.update(
+                        {
+                            "status": status,
+                            "analysis": analysis,
+                        }
+                    )
+                    if capture_batch_id:
+                        append_capture_payload_safe(
+                            capture_batch_id,
+                            source_endpoint=spec.source_endpoint,
+                            payload=payload,
+                            request_params={
+                                "mode": "explore",
+                                "title": spec.title,
+                                "url": url,
+                                "payload": case["payload"],
+                                "report_index": report_index,
+                                "case_index": case_counter,
+                                "case_id": case["case_id"],
+                                "label": case["label"],
+                            },
+                            page_no=case_counter,
+                        )
+                except Exception as exc:  # pragma: no cover - network/runtime failure path
+                    meta["has_failures"] = True
+                    result_entry.update(
+                        {
+                            "status": None,
+                            "error": str(exc),
+                        }
+                    )
+                probe_results.append(result_entry)
+
+        execute_cases(cases)
         summary = summarize_exploration_results(strategy, probe_results)
+        edge_probe_triggered = False
+        if edge_page_sizes and should_trigger_edge_page_probe(
+            summary.get("first_page_size_probe") or {},
+            threshold=edge_trigger_threshold,
+        ):
+            edge_probe_triggered = True
+            edge_cases = build_first_page_size_probe_cases(
+                {"title": spec.title, "payload": spec.payload},
+                strategy,
+                probe_sizes=edge_page_sizes,
+            )
+            existing_sizes = {
+                result.get("probe_context", {}).get("pagesize")
+                for result in probe_results
+                if result.get("kind") == "page_size_probe"
+            }
+            execute_cases(
+                [
+                    case
+                    for case in edge_cases
+                    if case["probe_context"].get("pagesize") not in existing_sizes
+                ]
+            )
+            summary = summarize_exploration_results(strategy, probe_results)
         report_result = {
             "title": spec.title,
             "source_endpoint": spec.source_endpoint,
@@ -867,11 +905,19 @@ def run_explore_mode(
                 ],
                 "context_fields": list(strategy.context_fields),
                 "combine_enum_with_pagination": strategy.combine_enum_with_pagination,
+                "first_page_probe_sizes": (
+                    list(resolve_first_page_probe_sizes(strategy.pagination.first_page_probe_sizes))
+                    if strategy.pagination
+                    else []
+                ),
+                "conditional_edge_page_sizes": edge_page_sizes,
+                "edge_trigger_threshold": edge_trigger_threshold,
             },
             "probe_results": probe_results,
             "summary": summary,
         }
         save_json(run_dir / f"{slugify(spec.title)}.exploration.json", report_result)
+        page_size_probe_summary = summary.get("first_page_size_probe") or {}
         meta["reports"].append(
             {
                 "title": spec.title,
@@ -881,6 +927,11 @@ def run_explore_mode(
                 "recommended_capture_strategy": summary["recommended_capture_strategy"],
                 "found_additional_pages": summary["found_additional_pages"],
                 "found_distinct_enum_results": summary["found_distinct_enum_results"],
+                "recommended_first_page_size": page_size_probe_summary.get("recommended_first_page_size"),
+                "first_page_contains_full_dataset": page_size_probe_summary.get("first_page_contains_full_dataset"),
+                "large_page_supported": page_size_probe_summary.get("large_page_supported"),
+                "large_page_ignored": page_size_probe_summary.get("large_page_ignored"),
+                "edge_probe_triggered": edge_probe_triggered,
             }
         )
         print(f"[ok] explore {spec.title} -> {slugify(spec.title)}.exploration.json")
@@ -915,6 +966,19 @@ def main() -> int:
     parser.add_argument("--explore-target", choices=["sales_inventory"], default="sales_inventory", help="explore 模式下要跑的接口范围")
     parser.add_argument("--max-pages", type=int, default=2, help="explore 模式下每个接口最多探测多少个分页页码")
     parser.add_argument("--enum-limit", type=int, default=3, help="explore 模式下每个枚举字段最多探测多少个候选值")
+    parser.add_argument(
+        "--edge-page-size",
+        action="append",
+        type=int,
+        default=[],
+        help="explore 模式下额外追加的首屏大页尺寸探测值；只有命中首屏 10000 行阈值时才会触发",
+    )
+    parser.add_argument(
+        "--edge-trigger-threshold",
+        type=int,
+        default=10000,
+        help="只有首屏 page-size 探测达到该行数阈值时，才触发更大的 edge page-size 试探",
+    )
     parser.add_argument("--persist-detection", action="store_true", help="explore 模式下显式开启写 capture 库")
     parser.add_argument(
         "--auth-source",
@@ -986,6 +1050,8 @@ def main() -> int:
             refreshed=refreshed,
             max_pages=max(1, args.max_pages),
             enum_limit=max(1, args.enum_limit),
+            edge_page_sizes=[size for size in args.edge_page_size if size >= 0],
+            edge_trigger_threshold=max(1, args.edge_trigger_threshold),
         )
 
     return run_fetch_mode(

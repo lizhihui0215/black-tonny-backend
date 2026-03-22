@@ -17,6 +17,8 @@
 | 会员总和分析 | `YisEposReport/SelVipAnalysisReport` | `POST` | `token` | `salebdate` `saleedate` `birthbdate` `birthedate` `salemoney1` `salemoney2` `tag` `type` `page` `pagesize` | 会员分析结果接口 | 需要扫枚举 | 结果快照 |
 | 会员消费排行 | `YisEposReport/SelVipSaleRank` | `POST` | `token` | `bdate` `edate` `page` `pagesize` | 排行视图接口 | 需要翻页 | 结果快照 |
 | 会员中心 | `YisEposVipManage/SelVipInfoList` | `POST` | `token` | `condition` `searchval` `VolumeNumber` | 当前最像会员主数据查询接口 | 大概率全量 | 单请求 |
+| 会员维护 | `待识别` | `页面基线` | `浏览器研究` | `待补页面查询条件` | 当前更像会员主数据维护页，已完成页面基线 | 主接口待识别 | 单请求 |
+| VIP卡折扣管理 | `待识别` | `页面基线` | `浏览器研究` | `默认加载` | 配置页，默认不作为事实主源 | 配置页面 | 暂不采纳 |
 
 ---
 
