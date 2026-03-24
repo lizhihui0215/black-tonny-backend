@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.services.yeusoft_page_research_service import load_page_research_manifests, summarize_page_manifests
+from app.services.research.page_research import load_page_research_manifests, summarize_page_manifests
 
 
 LOCAL_TZ = ZoneInfo("Asia/Shanghai")

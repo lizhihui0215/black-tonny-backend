@@ -13,7 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from app.db.engine import init_databases
 from app.services.batch_service import create_capture_batch, update_capture_batch
-from app.services.product_capture_admission_service import persist_product_capture_admission_bundle
+from app.services.capture.admissions import persist_product_capture_admission_bundle
 from app.services.product_evidence_service import extract_declared_total_count
 from scripts.fetch_yeusoft_report_payloads import (
     README_PATH,
@@ -137,7 +137,7 @@ def main() -> int:
         )
         update_capture_batch(capture_batch_id, batch_status="captured", pulled_at=now_local())
     else:
-        from app.services.product_capture_admission_service import build_product_capture_admission_bundle
+        from app.services.capture.admissions import build_product_capture_admission_bundle
 
         bundle = build_product_capture_admission_bundle(
             product_evidence=product_evidence,

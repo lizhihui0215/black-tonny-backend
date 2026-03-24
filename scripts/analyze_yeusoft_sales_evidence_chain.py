@@ -22,10 +22,10 @@ from app.services.erp_research_service import (  # noqa: E402
     extract_normalized_table_rows,
     set_nested_payload_value,
 )
-from app.services.sales_capture_admission_service import (  # noqa: E402
+from app.services.capture.admissions import (  # noqa: E402
     build_sales_capture_admission_bundle,
 )
-from app.services.retail_detail_stats_service import (  # noqa: E402
+from app.services.research.retail_detail_stats import (  # noqa: E402
     build_retail_detail_page_payload,
     build_sales_reconciliation_report,
     fetch_retail_detail_pages,

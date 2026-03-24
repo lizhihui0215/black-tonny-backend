@@ -1,6 +1,41 @@
 from __future__ import annotations
 
-from app.services.return_detail_evidence_service import build_return_detail_http_evidence_chain
+from app.services.research.return_detail_evidence import (
+    build_return_detail_base_info_filter_probes,
+    build_return_detail_http_evidence_chain,
+)
+
+
+def test_build_return_detail_base_info_filter_probes_uses_sample_codes_and_typecode_pairs():
+    base_info_payload = {
+        "errcode": "1000",
+        "retdata": [
+            {
+                "Data": [
+                    {"TitleName": "品牌", "Field": "AND TrademarkCode IN", "List": [{"Code": "01"}]},
+                    {"TitleName": "年份", "Field": "AND Years IN", "List": [{"Code": "2026"}]},
+                    {"TitleName": "小类", "Field": "AND TypeCode IN", "List": [{"Code": "040301"}]},
+                    {"TitleName": "波段", "Field": "AND State IN", "List": [{"Code": "1a"}]},
+                    {"TitleName": "订单来源", "Field": "Order", "List": [{"Code": "1"}]},
+                ]
+            }
+        ],
+    }
+
+    probes = build_return_detail_base_info_filter_probes(base_info_payload)
+
+    assert probes["品牌(TrademarkCode)=01"] == {"TrademarkCode": "01"}
+    assert probes["年份(Years)=2026"] == {"Years": "2026"}
+    assert probes["小类(TypeCode)=040301"] == {"TypeCode": "040301"}
+    assert probes["波段(State)=1a"] == {"State": "1a"}
+    assert probes["小类(TypeCode)=040301,品牌(TrademarkCode)=01"] == {
+        "TypeCode": "040301",
+        "TrademarkCode": "01",
+    }
+    assert probes["小类(TypeCode)=040301,订单来源(Order)=1"] == {
+        "TypeCode": "040301",
+        "Order": "1",
+    }
 
 
 def test_build_return_detail_http_evidence_chain_tracks_all_seed_errors():
@@ -31,6 +66,11 @@ def test_build_return_detail_http_evidence_chain_tracks_all_seed_errors():
     assert summary["tested_values"] == ["0", "1", "2"]
     assert summary["successful_values"] == []
     assert summary["error_groups"] == {"4000": ["0", "1", "2"]}
+    coverage = result["return_detail"]["base_info_filter_coverage"]
+    assert coverage["visible_titles"] == ["品牌", "订单来源"]
+    assert coverage["mapped_titles"] == ["品牌", "订单来源"]
+    assert coverage["unmapped_titles"] == []
+    assert coverage["mapping_complete"] is True
     assert result["return_detail"]["parameter_semantics"]["type"]["semantics"] == "all_seed_values_error"
     assert result["return_detail"]["capture_parameter_plan"]["type_seed_values"] == ["0", "1", "2"]
     assert result["return_detail"]["capture_parameter_plan"]["narrow_filter_seed_values"] == ["TrademarkCode=01"]

@@ -237,6 +237,24 @@ def test_analyze_response_sample_treats_placeholder_mapping_row_as_zero_rows(tmp
     assert result["column_count"] == 0
 
 
+def test_analyze_response_payload_supports_nested_data_data_shape():
+    payload = {
+        "Success": True,
+        "Data": {
+            "Data": [
+                {"PdID": "PD0001", "DeptName": "门店A"},
+                {"PdID": "PD0002", "DeptName": "门店A"},
+            ]
+        },
+    }
+
+    result = analyze_response_payload(payload)
+
+    assert result["response_shape"] == "Data.Data"
+    assert result["row_count"] == 2
+    assert result["column_count"] == 2
+
+
 def test_analyze_response_payload_extracts_json_error_from_text_body():
     result = analyze_response_payload('{"errcode":"4000","errmsg":"将截断字符串或二进制数据。"}')
 

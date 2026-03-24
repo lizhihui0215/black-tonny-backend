@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from app.services.menu_coverage_audit_service import (
+from app.services.research.menu_coverage import (
     build_menu_coverage_audit,
     infer_domain_from_menu_metadata,
 )
-from app.services.yeusoft_page_research_service import ResearchPageRecipe, ResearchPageRegistryEntry
+from app.services.research.page_research import ResearchPageRecipe, ResearchPageRegistryEntry
 
 
 def _entry(

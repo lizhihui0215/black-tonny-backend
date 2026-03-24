@@ -11,12 +11,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.services.return_detail_evidence_service import build_return_detail_http_evidence_chain
+from app.services.research.return_detail_evidence import (
+    build_return_detail_base_info_filter_probes,
+    build_return_detail_http_evidence_chain,
+)
 from scripts.fetch_yeusoft_report_payloads import (
     DEFAULT_SESSION_PATH,
     README_PATH,
     build_report_auth_headers,
     perform_request,
+    persist_session_refresh,
     refresh_session_access_token,
     resolve_auth_context,
 )
@@ -31,7 +35,7 @@ RETURN_BASE_PAYLOAD = {
     "warecause": "",
     "spenum": "",
 }
-DEFAULT_NARROW_FILTER_PROBES = {
+STATIC_NARROW_FILTER_PROBES = {
     "TrademarkCode=01": {"TrademarkCode": "01"},
     "Years=2026": {"Years": "2026"},
     "Season=1": {"Season": "1"},
@@ -46,67 +50,89 @@ def now_local() -> datetime:
     return datetime.now(LOCAL_TZ)
 
 
-def _fetch(url: str, payload: dict[str, object], *, auth_source: str, transport: str) -> tuple[object, dict[str, str]]:
-    auth = resolve_auth_context(auth_source, README_PATH, DEFAULT_SESSION_PATH)
-    access_token, refresh_expired_time = refresh_session_access_token(auth)
-    if auth_source == "session" and DEFAULT_SESSION_PATH.exists():
-        from scripts.fetch_yeusoft_report_payloads import persist_session_refresh
-
-        persist_session_refresh(auth, access_token, refresh_expired_time)
+def _fetch(
+    url: str,
+    payload: dict[str, object],
+    *,
+    access_token: str,
+    transport: str,
+) -> object:
     headers = build_report_auth_headers(url, access_token)
     status, response_payload = perform_request(transport, url, payload, headers)
     if status != 200:
         raise RuntimeError(f"{url} 请求失败，HTTP {status}")
-    return response_payload, {
-        "company_code": auth.company_code,
-        "dept_code": auth.dept_code,
-        "dept_name": auth.dept_name,
-        "user_name": auth.user_name,
-    }
+    return response_payload
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="生成 Yeusoft 退货明细 HTTP 证据链")
     parser.add_argument("--auth-source", choices=["auto", "login", "session"], default="login")
     parser.add_argument("--transport", choices=["curl", "urllib"], default="curl")
-    parser.add_argument("--type-values", default="0,1,2,3", help="逗号分隔的 type seed 值")
+    parser.add_argument(
+        "--type-values",
+        default="0,1,2,3,4,5",
+        help="逗号分隔的 type seed 值；会额外自动补 blank probe。默认也覆盖页面祖先状态里出现的 4/5 候选值",
+    )
+    parser.add_argument("--disable-derived-probes", action="store_true", help="关闭基于 ReturnStockBaseInfo 自动生成的过滤维度 probe")
     parser.add_argument("--output", help="输出 JSON 文件路径；默认写入 tmp/capture-samples/analysis")
     args = parser.parse_args()
 
     type_values = [item.strip() for item in args.type_values.split(",") if item.strip()]
-    base_info_payload = {"menuid": "E004003004"}
-    baseline_payload = {**RETURN_BASE_PAYLOAD, "type": type_values[0] if type_values else "0"}
+    auth = resolve_auth_context(args.auth_source, README_PATH, DEFAULT_SESSION_PATH)
+    access_token, refresh_expired_time = refresh_session_access_token(auth)
+    if args.auth_source == "session" and DEFAULT_SESSION_PATH.exists():
+        persist_session_refresh(auth, access_token, refresh_expired_time)
 
-    base_info_response, auth_context = _fetch(
+    base_info_payload = {"menuid": "E004003004"}
+    baseline_payload = dict(RETURN_BASE_PAYLOAD)
+
+    base_info_response = _fetch(
         RETURN_BASE_INFO_URL,
         base_info_payload,
-        auth_source=args.auth_source,
+        access_token=access_token,
         transport=args.transport,
     )
-    baseline_response, _ = _fetch(
+    auth_context = {
+        "company_code": auth.company_code,
+        "dept_code": auth.dept_code,
+        "dept_name": auth.dept_name,
+        "user_name": auth.user_name,
+    }
+    baseline_response = _fetch(
         RETURN_DETAIL_URL,
         baseline_payload,
-        auth_source=args.auth_source,
+        access_token=access_token,
         transport=args.transport,
     )
     type_payloads = {}
-    for value in type_values:
-        payload = {**RETURN_BASE_PAYLOAD, "type": value}
-        response_payload, _ = _fetch(
+    type_probe_values = ["blank", *type_values]
+    for value in type_probe_values:
+        payload = dict(RETURN_BASE_PAYLOAD)
+        if value != "blank":
+            payload["type"] = value
+        else:
+            payload["type"] = ""
+        response_payload = _fetch(
             RETURN_DETAIL_URL,
             payload,
-            auth_source=args.auth_source,
+            access_token=access_token,
             transport=args.transport,
         )
         type_payloads[value] = response_payload
 
+    derived_filter_probes = (
+        {}
+        if args.disable_derived_probes
+        else build_return_detail_base_info_filter_probes(base_info_response)
+    )
+    narrow_filter_probes = {**STATIC_NARROW_FILTER_PROBES, **derived_filter_probes}
     narrow_filter_payloads = {}
-    for name, overrides in DEFAULT_NARROW_FILTER_PROBES.items():
-        payload = {**RETURN_BASE_PAYLOAD, "type": type_values[0] if type_values else "0", **overrides}
-        response_payload, _ = _fetch(
+    for name, overrides in narrow_filter_probes.items():
+        payload = {**RETURN_BASE_PAYLOAD, **overrides}
+        response_payload = _fetch(
             RETURN_DETAIL_URL,
             payload,
-            auth_source=args.auth_source,
+            access_token=access_token,
             transport=args.transport,
         )
         narrow_filter_payloads[name] = response_payload
@@ -124,8 +150,8 @@ def main() -> int:
         "return_detail": {
             "url": RETURN_DETAIL_URL,
             "baseline_payload": baseline_payload,
-            "type_values": type_values,
-            "narrow_filter_probes": DEFAULT_NARROW_FILTER_PROBES,
+            "type_values": type_probe_values,
+            "narrow_filter_probes": narrow_filter_probes,
         },
     }
 

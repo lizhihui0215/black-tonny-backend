@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.inventory_evidence_service import build_inventory_http_evidence_chain
+from app.services.research.inventory_evidence import build_inventory_http_evidence_chain
 
 
 def _table_payload(columns: list[str], rows: list[list[object]]) -> dict:

@@ -12,6 +12,10 @@ from sqlalchemy import (
     Table,
     Text,
 )
+from sqlalchemy.dialects.mysql import LONGTEXT
+
+
+LONG_TEXT = Text().with_variant(LONGTEXT(), "mysql")
 
 
 serving_metadata = MetaData()
@@ -57,7 +61,7 @@ cost_snapshots = Table(
     Column("snapshot_period", String(32), nullable=False, unique=True, index=True),
     Column("snapshot_name", String(128), nullable=False),
     Column("snapshot_datetime", String(64), nullable=True),
-    Column("payload_json", Text, nullable=False),
+    Column("payload_json", LONG_TEXT, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
@@ -168,7 +172,7 @@ capture_batches = Table(
     Column("transformed_at", DateTime(timezone=True), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
-    Column("error_message", Text, nullable=True),
+    Column("error_message", LONG_TEXT, nullable=True),
 )
 
 capture_endpoint_payloads = Table(
@@ -180,8 +184,8 @@ capture_endpoint_payloads = Table(
     Column("route_kind", String(32), nullable=True, index=True),
     Column("page_cursor", String(128), nullable=True),
     Column("page_no", Integer, nullable=True),
-    Column("request_params", Text, nullable=True),
-    Column("payload_json", Text, nullable=False),
+    Column("request_params", LONG_TEXT, nullable=True),
+    Column("payload_json", LONG_TEXT, nullable=False),
     Column("checksum", String(128), nullable=False, index=True),
     Column("pulled_at", DateTime(timezone=True), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),

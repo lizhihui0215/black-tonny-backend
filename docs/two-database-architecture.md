@@ -1,5 +1,7 @@
 # 两库架构说明
 
+> 这份文档只定义 `capture / serving` 的数据职责边界。backend 内部模块如何落位，统一以 [backend boilerplate 对齐说明](./backend-boilerplate-alignment.md) 为准；彻底迁移顺序以 [backend boilerplate 彻底迁移路线图](./backend-boilerplate-migration-roadmap.md) 为准。
+
 ## 目标
 
 `black-tonny-backend` 现在只保留两类长期数据库：
@@ -36,6 +38,14 @@
 
 按源接口建表，重点是可回放、可审计、可排错。
 
+实现层默认要求：
+
+- 表结构归长期模型层管理
+- 持久化细节归数据访问层管理
+- batch / admission / transform 编排归服务编排层管理
+
+不能继续把这些长期职责全部混放在平铺的大型 service 文件里。
+
 ### `capture_batches`
 
 - `capture_batch_id`
@@ -70,6 +80,12 @@
 - 先服务当前模块，再决定哪些结构值得沉淀成长期标准模型
 
 不建议在这个阶段把 serving 里的所有表都当作最终稳定模型。
+
+实现层同样应按 boilerplate 风格理解：
+
+- serving 长期表结构应逐步沉淀到正式模型层
+- serving 读写逻辑应逐步沉淀到数据访问层
+- 页面/API 聚合协调才属于编排层
 
 ### 应用运行表
 
@@ -137,6 +153,11 @@
   - 供 FastAPI 业务接口、状态页、任务表、缓存索引、当前业务投影表使用
 
 禁止业务接口直接读 `capture` 表。
+
+同时补充一条结构边界：
+
+- `research` / Playwright / evidence chain 代码可以帮助识别 `capture` 是否该准入
+- 但它们不是 `capture` 或 `serving` 的正式结构真源
 
 ## 当前实现状态
 

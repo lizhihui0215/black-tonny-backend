@@ -30,6 +30,19 @@ class Settings(BaseSettings):
     analysis_db_url: str | None = None
     app_db_url: str | None = None
     admin_api_token: str = Field(default="change-me", min_length=1)
+    frontend_auth_secret: str = Field(
+        default="black-tonny-frontend-auth-secret",
+        min_length=1,
+    )
+    frontend_auth_access_token_ttl_seconds: int = Field(
+        default=604800,
+        ge=300,
+    )
+    owner_login_username: str = Field(default="owner", min_length=1)
+    owner_login_password: str = Field(default="123456", min_length=1)
+    owner_login_real_name: str = Field(default="老板", min_length=1)
+    owner_login_avatar_url: str = "https://avatar.vercel.sh/black-tonny.svg?text=BT"
+    owner_login_home_path: str = Field(default="/dashboard", min_length=1)
     payload_cache_dir: str = "data/cache"
     sample_data_dir: str = "data/sample"
     rebuild_cron: str = "30 7 * * *"

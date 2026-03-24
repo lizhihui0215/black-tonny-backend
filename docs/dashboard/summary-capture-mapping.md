@@ -167,7 +167,7 @@
 
 当前 transform 入口：
 
-- 服务：`app/services/capture_transform_service.py`
+- 服务：`app/services/serving/transform.py`
 - 脚本：`scripts/transform_capture_batch.py`
 
 当前行为：

@@ -414,6 +414,14 @@ def _extract_table_data(payload: Any) -> tuple[list[str], list[Any], str]:
         data = payload["Data"]
         if isinstance(data.get("Columns"), list) and isinstance(data.get("List"), list):
             return list(data["Columns"]), list(data["List"]), "Data.Columns+List"
+        if isinstance(data.get("Data"), list):
+            rows = list(data["Data"])
+            if str(data.get("DataCount") or data.get("Count") or "").strip() == "0" and all(
+                _is_placeholder_mapping_row(row) for row in rows
+            ):
+                rows = []
+            columns = list(rows[0].keys()) if rows and isinstance(rows[0], Mapping) else []
+            return columns, rows, "Data.Data"
 
     if isinstance(payload, Mapping) and isinstance(payload.get("PageData"), Mapping):
         page_data = payload["PageData"]

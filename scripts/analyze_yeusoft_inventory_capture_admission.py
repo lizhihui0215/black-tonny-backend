@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from app.services.inventory_capture_admission_service import build_inventory_capture_admission_bundle
+from app.services.capture.admissions import build_inventory_capture_admission_bundle
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

@@ -2,6 +2,13 @@
 
 > 当前统一状态面板见 [ERP API 成熟度总览](./api-maturity-board.md)，推进路线见 [ERP Capture 全量导入路线图](./capture-ingestion-roadmap.md)。以后新开窗口，先看状态板里“全域风险地图是否已完成”，再看路线图，再往下看分域台账和 analysis 证据文件。
 
+补一条架构边界：
+
+- 这组 ERP 文档负责接口可信度、准入状态和路线推进
+- backend 内部目录和模块职责，以 [backend boilerplate 对齐说明](../backend-boilerplate-alignment.md) 为准
+- backend 从当前过渡态彻底迁移到 boilerplate 风格结构的阶段顺序，以 [backend boilerplate 彻底迁移路线图](../backend-boilerplate-migration-roadmap.md) 为准
+- 不能把 `api-maturity-board`、`capture-route-registry` 或 probe 脚本当成 backend 内部结构真源
+
 补充说明：
 
 - 这里的“全域”当前默认指“当前账号可见全域”，不是系统全部角色、全部租户的绝对全量。

@@ -26,8 +26,32 @@ def _configure_test_env(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PAYLOAD_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("SAMPLE_DATA_DIR", str(Path(__file__).resolve().parents[1] / "data" / "sample"))
     monkeypatch.setenv("ADMIN_API_TOKEN", "test-token")
+    monkeypatch.setenv("FRONTEND_AUTH_SECRET", "test-frontend-auth-secret")
+    monkeypatch.setenv("OWNER_LOGIN_USERNAME", "owner")
+    monkeypatch.setenv("OWNER_LOGIN_PASSWORD", "123456")
+    monkeypatch.setenv("OWNER_LOGIN_REAL_NAME", "老板")
+    monkeypatch.setenv("OWNER_LOGIN_AVATAR_URL", "https://avatar.vercel.sh/test-owner.svg?text=BT")
+    monkeypatch.setenv("OWNER_LOGIN_HOME_PATH", "/dashboard")
+    monkeypatch.setenv("FRONTEND_AUTH_ACCESS_TOKEN_TTL_SECONDS", "3600")
     clear_settings_cache()
     clear_engine_caches()
+
+
+def _login_frontend(client: TestClient) -> dict[str, str]:
+    response = client.post(
+        "/api/auth/login",
+        json={
+            "password": "123456",
+            "username": "owner",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["code"] == 0
+    access_token = payload["data"]["accessToken"]
+    assert isinstance(access_token, str)
+    assert access_token
+    return {"Authorization": f"Bearer {access_token}"}
 
 
 def test_health_and_manifest(monkeypatch, tmp_path: Path):
@@ -47,27 +71,84 @@ def test_health_and_manifest(monkeypatch, tmp_path: Path):
         status = client.get("/api/status")
         assert status.status_code == 200
         status_payload = status.json()
-        assert "runtime" in status_payload
-        assert "components" in status_payload
-        assert "system" in status_payload
-        assert "cache_summary" in status_payload
-        assert "database_summary" in status_payload
-        assert status_payload["runtime"]["hostname"]
-        assert status_payload["runtime"]["python_version"]
-        assert status_payload["runtime"]["process_id"] > 0
-        assert "disk_total_bytes" in status_payload["system"]
-        assert "disk_used_bytes" in status_payload["system"]
-        assert "disk_free_bytes" in status_payload["system"]
-        assert "load_avg" in status_payload["system"]
-        assert "serving" in status_payload["database_summary"]
-        assert "capture" in status_payload["database_summary"]
-        assert "table_counts" in status_payload["database_summary"]["serving"]
-        assert "table_counts" in status_payload["database_summary"]["capture"]
-        assert status_payload["components"]["analysis_source"]["status"] == "warning"
+        assert status_payload["code"] == 0
+        assert status_payload["message"] == "ok"
+        status_data = status_payload["data"]
+        assert "runtime" in status_data
+        assert "components" in status_data
+        assert "system" in status_data
+        assert "cache_summary" in status_data
+        assert "database_summary" in status_data
+        assert status_data["runtime"]["hostname"]
+        assert status_data["runtime"]["python_version"]
+        assert status_data["runtime"]["process_id"] > 0
+        assert "disk_total_bytes" in status_data["system"]
+        assert "disk_used_bytes" in status_data["system"]
+        assert "disk_free_bytes" in status_data["system"]
+        assert "load_avg" in status_data["system"]
+        assert "serving" in status_data["database_summary"]
+        assert "capture" in status_data["database_summary"]
+        assert "table_counts" in status_data["database_summary"]["serving"]
+        assert "table_counts" in status_data["database_summary"]["capture"]
+        assert status_data["components"]["analysis_source"]["status"] == "warning"
         manifest = client.get("/api/manifest")
         assert manifest.status_code == 200
         payload = manifest.json()
-        assert payload["available_pages"]["dashboard"] == "/api/pages/dashboard"
+        assert payload["code"] == 0
+        assert payload["message"] == "ok"
+        assert payload["data"]["available_pages"]["dashboard"] == "/api/pages/dashboard"
+
+        page = client.get("/api/pages/dashboard")
+        assert page.status_code == 200
+        page_payload = page.json()
+        assert page_payload["code"] == 0
+        assert page_payload["message"] == "ok"
+        assert "meta" in page_payload["data"]
+        assert "summary_cards" in page_payload["data"]
+
+
+def test_frontend_auth_contract(monkeypatch, tmp_path: Path):
+    _configure_test_env(monkeypatch, tmp_path)
+    from app.main import app
+
+    with TestClient(app) as client:
+        invalid = client.post(
+            "/api/auth/login",
+            json={"password": "bad-password", "username": "owner"},
+        )
+        assert invalid.status_code == 401
+        invalid_payload = invalid.json()
+        assert invalid_payload["code"] == 40120
+        assert invalid_payload["message"] == "Invalid username or password."
+
+        login = client.post(
+            "/api/auth/login",
+            json={"password": "123456", "username": "owner"},
+        )
+        assert login.status_code == 200
+        login_payload = login.json()
+        assert login_payload["code"] == 0
+        token = login_payload["data"]["accessToken"]
+
+        headers = {"Authorization": f"Bearer {token}"}
+        codes = client.get("/api/auth/codes", headers=headers)
+        assert codes.status_code == 200
+        assert codes.json()["data"] == ["black-tonny"]
+
+        user_info = client.get("/api/user/info", headers=headers)
+        assert user_info.status_code == 200
+        user_payload = user_info.json()
+        assert user_payload["code"] == 0
+        assert user_payload["data"]["userId"] == "black-tonny-owner"
+        assert user_payload["data"]["roles"] == ["owner"]
+        assert user_payload["data"]["homePath"] == "/dashboard"
+        assert user_payload["data"]["token"] == token
+
+        logout = client.post("/api/auth/logout")
+        assert logout.status_code == 200
+        logout_payload = logout.json()
+        assert logout_payload["code"] == 0
+        assert logout_payload["data"]["success"] is True
 
 
 def test_rebuild_job_refreshes_cache(monkeypatch, tmp_path: Path):
@@ -82,10 +163,14 @@ def test_rebuild_job_refreshes_cache(monkeypatch, tmp_path: Path):
             json={"sync_mode": "full", "build_only": False},
         )
         assert response.status_code == 200
-        job_id = response.json()["job_id"]
+        payload = response.json()
+        assert payload["code"] == 0
+        job_id = payload["data"]["job_id"]
         detail = client.get(f"/api/jobs/{job_id}")
         assert detail.status_code == 200
-        assert detail.json()["status"] in {"queued", "running", "success"}
+        detail_payload = detail.json()
+        assert detail_payload["code"] == 0
+        assert detail_payload["data"]["status"] in {"queued", "running", "success"}
 
     with get_serving_engine().begin() as connection:
         row = connection.execute(select(analysis_batches.c.analysis_batch_id)).first()
@@ -97,11 +182,16 @@ def test_dashboard_summary_contract_and_openapi(monkeypatch, tmp_path: Path):
     from app.main import app
 
     with TestClient(app) as client:
-        response = client.get("/api/dashboard/summary", params={"preset": "last7days"})
+        response = client.get(
+            "/api/dashboard/summary",
+            params={"preset": "last7days"},
+        )
         assert response.status_code == 200
         payload = response.json()
-        assert payload["dateRange"]["preset"] == "last7days"
-        assert set(payload["summary"].keys()) == {
+        assert payload["code"] == 0
+        assert payload["message"] == "ok"
+        assert payload["data"]["dateRange"]["preset"] == "last7days"
+        assert set(payload["data"]["summary"].keys()) == {
             "salesAmount",
             "orderCount",
             "avgOrderValue",
@@ -111,19 +201,105 @@ def test_dashboard_summary_contract_and_openapi(monkeypatch, tmp_path: Path):
             "sizeBreakStyleCount",
             "outOfSeasonStockQty",
         }
-        assert payload["summary"]["salesAmount"]["subText"].startswith("共 ")
-        assert payload["summary"]["attachRate"]["subText"] == "件/单"
-        assert payload["summary"]["lowStockSkuCount"]["subText"] == "近 7 天新增预警"
+        assert payload["data"]["summary"]["salesAmount"]["subText"].startswith(
+            "共 "
+        )
+        assert payload["data"]["summary"]["attachRate"]["subText"] == "件/单"
+        assert (
+            payload["data"]["summary"]["lowStockSkuCount"]["subText"]
+            == "近 7 天新增预警"
+        )
 
-        start = date.fromisoformat(payload["dateRange"]["startDate"])
-        end = date.fromisoformat(payload["dateRange"]["endDate"])
-        compare_start = date.fromisoformat(payload["dateRange"]["compareStartDate"])
-        compare_end = date.fromisoformat(payload["dateRange"]["compareEndDate"])
+        start = date.fromisoformat(payload["data"]["dateRange"]["startDate"])
+        end = date.fromisoformat(payload["data"]["dateRange"]["endDate"])
+        compare_start = date.fromisoformat(
+            payload["data"]["dateRange"]["compareStartDate"]
+        )
+        compare_end = date.fromisoformat(
+            payload["data"]["dateRange"]["compareEndDate"]
+        )
         assert (end - start).days == (compare_end - compare_start).days
 
         openapi_payload = client.get("/openapi.json")
         assert openapi_payload.status_code == 200
         assert "/api/dashboard/summary" in openapi_payload.json()["paths"]
+        assert "/api/assistant/chat" in openapi_payload.json()["paths"]
+
+
+def test_assistant_chat_contract(monkeypatch, tmp_path: Path):
+    _configure_test_env(monkeypatch, tmp_path)
+    from app.main import app
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/assistant/chat",
+            json={
+                "prompt": "今天先看什么",
+                "context": {
+                    "pageKey": "dashboard",
+                    "pageTitle": "经营总览",
+                    "summary": "先看顶部 8 张卡，再决定是否继续下钻。",
+                    "metrics": [
+                        "销售额 3.2 万，较上期 +12%",
+                        "订单数 182，较上期 +8%",
+                    ],
+                    "actions": [
+                        {
+                            "title": "先看 summary，再决定是否下钻到趋势和库存模块。",
+                            "note": "先用顶部 8 张卡确认结果、效率和库存风险。",
+                        },
+                        {
+                            "title": "切日期时优先看销售类卡片变化，再看库存类副值变化。",
+                            "note": "当前页统一跟随日期区间变化。",
+                        },
+                    ],
+                },
+                "recentMessages": [
+                    {
+                        "role": "assistant",
+                        "content": "我会基于当前页上下文回答。",
+                    }
+                ],
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["code"] == 0
+        assert payload["message"] == "ok"
+        assert payload["data"]["provider"] == "backend-context"
+        assert payload["data"]["grounded"] is True
+        assert payload["data"]["reply"].startswith("经营总览这页我建议先按这个顺序推进：")
+        assert "先看 summary" in payload["data"]["reply"]
+
+
+def test_cost_snapshot_contract(monkeypatch, tmp_path: Path):
+    _configure_test_env(monkeypatch, tmp_path)
+    from app.main import app
+
+    with TestClient(app) as client:
+        initial = client.get("/api/cost-snapshot")
+        assert initial.status_code == 200
+        initial_payload = initial.json()
+        assert initial_payload["code"] == 0
+        assert initial_payload["data"]["snapshot"] == {}
+        assert initial_payload["data"]["history"] == []
+
+        saved = client.post(
+            "/api/cost-snapshot",
+            headers={"X-Admin-Token": "test-token"},
+            json={
+                "snapshot": {
+                    "snapshot_name": "2026-03 sample",
+                    "snapshot_datetime": "2026-03-21T10:00:00+08:00",
+                    "rent_amount": 12800,
+                }
+            },
+        )
+        assert saved.status_code == 200
+        saved_payload = saved.json()
+        assert saved_payload["code"] == 0
+        assert saved_payload["data"]["snapshot"]["rent_amount"] == 12800
+        assert len(saved_payload["data"]["history"]) == 1
 
 
 def test_dashboard_summary_custom_range_validation(monkeypatch, tmp_path: Path):
@@ -131,7 +307,10 @@ def test_dashboard_summary_custom_range_validation(monkeypatch, tmp_path: Path):
     from app.main import app
 
     with TestClient(app) as client:
-        missing_custom = client.get("/api/dashboard/summary", params={"preset": "custom"})
+        missing_custom = client.get(
+            "/api/dashboard/summary",
+            params={"preset": "custom"},
+        )
         assert missing_custom.status_code == 422
 
         custom = client.get(
@@ -144,19 +323,23 @@ def test_dashboard_summary_custom_range_validation(monkeypatch, tmp_path: Path):
         )
         assert custom.status_code == 200
         payload = custom.json()
-        assert payload["dateRange"]["startDate"] == "2026-03-01"
-        assert payload["dateRange"]["endDate"] == "2026-03-14"
-        assert payload["summary"]["sizeBreakStyleCount"]["subText"] == "所选区间新增缺码"
+        assert payload["code"] == 0
+        assert payload["data"]["dateRange"]["startDate"] == "2026-03-01"
+        assert payload["data"]["dateRange"]["endDate"] == "2026-03-14"
+        assert (
+            payload["data"]["summary"]["sizeBreakStyleCount"]["subText"]
+            == "所选区间新增缺码"
+        )
 
 
 def test_dashboard_summary_prefers_serving_database(monkeypatch, tmp_path: Path):
     _configure_test_env(monkeypatch, tmp_path)
     from app.db.engine import get_serving_engine, init_databases
     from app.main import app
-    from app.services import dashboard_service
+    from app.services.runtime import dashboard as runtime_dashboard
 
     frozen_now = datetime(2026, 3, 21, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
-    monkeypatch.setattr(dashboard_service, "now_local", lambda: frozen_now)
+    monkeypatch.setattr(runtime_dashboard, "now_local", lambda: frozen_now)
     init_databases()
 
     with get_serving_engine().begin() as connection:
@@ -395,29 +578,44 @@ def test_dashboard_summary_prefers_serving_database(monkeypatch, tmp_path: Path)
         )
 
     with TestClient(app) as client:
-        response = client.get("/api/dashboard/summary", params={"preset": "last7days"})
+        auth_headers = _login_frontend(client)
+        response = client.get(
+            "/api/dashboard/summary",
+            params={"preset": "last7days"},
+            headers=auth_headers,
+        )
         assert response.status_code == 200
         payload = response.json()
-        assert payload["summary"]["salesAmount"]["value"] == 300
-        assert payload["summary"]["salesAmount"]["compareValue"] == 200
-        assert payload["summary"]["orderCount"]["value"] == 2
-        assert payload["summary"]["avgOrderValue"]["value"] == 150
-        assert payload["summary"]["salesQuantity"]["value"] == 3
-        assert payload["summary"]["attachRate"]["value"] == 1.5
-        assert payload["summary"]["attachRate"]["compareValue"] == 0.5
-        assert payload["summary"]["lowStockSkuCount"]["value"] == 2
-        assert payload["summary"]["lowStockSkuCount"]["compareDirection"] == "flat"
-        assert payload["summary"]["sizeBreakStyleCount"]["value"] == 1
-        assert payload["summary"]["outOfSeasonStockQty"]["value"] == 6
-        assert payload["summary"]["outOfSeasonStockQty"]["compareValue"] == -1
-        assert payload["summary"]["outOfSeasonStockQty"]["subText"] == "较上期减少"
+        assert payload["code"] == 0
+        assert payload["data"]["summary"]["salesAmount"]["value"] == 300
+        assert payload["data"]["summary"]["salesAmount"]["compareValue"] == 200
+        assert payload["data"]["summary"]["orderCount"]["value"] == 2
+        assert payload["data"]["summary"]["avgOrderValue"]["value"] == 150
+        assert payload["data"]["summary"]["salesQuantity"]["value"] == 3
+        assert payload["data"]["summary"]["attachRate"]["value"] == 1.5
+        assert payload["data"]["summary"]["attachRate"]["compareValue"] == 0.5
+        assert payload["data"]["summary"]["lowStockSkuCount"]["value"] == 2
+        assert (
+            payload["data"]["summary"]["lowStockSkuCount"]["compareDirection"]
+            == "flat"
+        )
+        assert payload["data"]["summary"]["sizeBreakStyleCount"]["value"] == 1
+        assert payload["data"]["summary"]["outOfSeasonStockQty"]["value"] == 6
+        assert (
+            payload["data"]["summary"]["outOfSeasonStockQty"]["compareValue"]
+            == -1
+        )
+        assert (
+            payload["data"]["summary"]["outOfSeasonStockQty"]["subText"]
+            == "较上期减少"
+        )
 
 
 def test_transform_capture_batch_to_serving(monkeypatch, tmp_path: Path):
     _configure_test_env(monkeypatch, tmp_path)
     from app.db.engine import get_capture_engine, get_serving_engine, init_databases
     from app.services.batch_service import append_capture_payload, create_capture_batch
-    from app.services.capture_transform_service import transform_capture_batch_to_serving
+    from app.services.serving import transform_capture_batch_to_serving
 
     init_databases()
     capture_batch_id = create_capture_batch(source_name="summary-test", capture_batch_id="capture-raw-001")
@@ -536,7 +734,7 @@ def test_transform_capture_batch_requires_all_summary_endpoints(monkeypatch, tmp
     _configure_test_env(monkeypatch, tmp_path)
     from app.db.engine import init_databases
     from app.services.batch_service import append_capture_payload, create_capture_batch
-    from app.services.capture_transform_service import transform_capture_batch_to_serving
+    from app.services.serving import transform_capture_batch_to_serving
 
     init_databases()
     capture_batch_id = create_capture_batch(source_name="summary-test", capture_batch_id="capture-missing-001")
@@ -560,7 +758,7 @@ def test_transform_capture_batch_supports_common_field_aliases(monkeypatch, tmp_
     _configure_test_env(monkeypatch, tmp_path)
     from app.db.engine import get_serving_engine, init_databases
     from app.services.batch_service import append_capture_payload, create_capture_batch
-    from app.services.capture_transform_service import transform_capture_batch_to_serving
+    from app.services.serving import transform_capture_batch_to_serving
 
     init_databases()
     capture_batch_id = create_capture_batch(source_name="summary-test", capture_batch_id="capture-alias-001")

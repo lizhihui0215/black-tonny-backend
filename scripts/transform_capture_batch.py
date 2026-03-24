@@ -5,7 +5,7 @@ import argparse
 import json
 
 from app.db.engine import init_databases
-from app.services.capture_transform_service import transform_capture_batch_to_serving
+from app.services.serving import transform_capture_batch_to_serving
 
 
 def main() -> int:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from app.services.batch_service import append_capture_payload
+from app.services.capture.persist_helpers import append_capture_payload
 from app.services.product_evidence_service import extract_declared_total_count
 
 

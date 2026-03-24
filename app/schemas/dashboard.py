@@ -135,3 +135,9 @@ DASHBOARD_SUMMARY_RESPONSE_EXAMPLE = {
         },
     },
 }
+
+DASHBOARD_SUMMARY_SUCCESS_RESPONSE_EXAMPLE = {
+    "code": 0,
+    "data": DASHBOARD_SUMMARY_RESPONSE_EXAMPLE,
+    "message": "ok",
+}

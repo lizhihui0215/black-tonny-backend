@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.services.inventory_evidence_service import build_inventory_http_evidence_chain
+from app.services.research.inventory_evidence import build_inventory_http_evidence_chain
 from scripts.fetch_yeusoft_report_payloads import (
     DEFAULT_SESSION_PATH,
     README_PATH,

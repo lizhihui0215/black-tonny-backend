@@ -11,8 +11,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.services.menu_coverage_audit_service import build_menu_coverage_audit
-from app.services.yeusoft_page_research_service import (
+from app.services.research.menu_coverage import build_menu_coverage_audit
+from app.services.research.page_research import (
     DEFAULT_QUERY_DATE_RANGE,
     build_page_research_registry,
     load_page_research_manifests,

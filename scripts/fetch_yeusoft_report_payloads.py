@@ -33,7 +33,7 @@ from app.services.erp_research_service import (
     should_persist_capture,
     summarize_exploration_results,
 )
-from app.services.retail_detail_stats_service import (
+from app.services.research.retail_detail_stats import (
     RETAIL_DETAIL_CANONICAL_ENDPOINT,
     build_sales_reconciliation_report,
     fetch_retail_detail_pages,
@@ -479,7 +479,7 @@ def find_latest_report_payload(raw_root: Path, title: str) -> tuple[Path | None,
 
 def try_create_capture_batch(source_name: str) -> str | None:
     try:
-        from app.services.batch_service import create_capture_batch
+        from app.services.capture.batch_lifecycle import create_capture_batch
 
         return create_capture_batch(source_name=source_name)
     except Exception as exc:  # pragma: no cover - best effort path for offline/dev machines
@@ -495,7 +495,7 @@ def append_capture_payload_safe(
     request_params: dict[str, Any] | None = None,
     page_no: int | None = None,
 ) -> None:
-    from app.services.batch_service import append_capture_payload
+    from app.services.capture.persist_helpers import append_capture_payload
 
     append_capture_payload(
         capture_batch_id,
@@ -507,7 +507,7 @@ def append_capture_payload_safe(
 
 
 def update_capture_batch_safe(capture_batch_id: str, **kwargs: Any) -> None:
-    from app.services.batch_service import update_capture_batch
+    from app.services.capture.batch_lifecycle import update_capture_batch
 
     update_capture_batch(capture_batch_id, **kwargs)
 

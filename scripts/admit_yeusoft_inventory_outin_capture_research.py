@@ -12,8 +12,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.db.engine import init_databases
-from app.services.batch_service import create_capture_batch, update_capture_batch
-from app.services.inventory_capture_admission_service import (
+from app.services.capture.batch_lifecycle import create_capture_batch, update_capture_batch
+from app.services.capture.admissions import (
     build_outin_research_sweep_summary,
     build_inventory_capture_admission_bundle,
     persist_outin_capture_research_bundle,

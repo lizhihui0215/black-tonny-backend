@@ -7,6 +7,10 @@
 
 `GET /api/dashboard/summary`
 
+当前 runtime phase 不要求 frontend bearer access token。
+
+若未来重新启用 backend frontend auth，先更新 [../frontend-auth-api.md](../frontend-auth-api.md) 与 [../frontend-backend-boundary.md](../frontend-backend-boundary.md)，再同步恢复该接口的登录要求与路由依赖。
+
 ---
 
 ## 2. 接口用途

@@ -14,10 +14,10 @@
 
 | 页面/报表 | endpoint | method | 认证方式 | 主要过滤字段 | 当前判断 | 风险标签 | 抓取策略 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 会员总和分析 | `YisEposReport/SelVipAnalysisReport` | `POST` | `token` | `salebdate` `saleedate` `birthbdate` `birthedate` `salemoney1` `salemoney2` `tag` `type` `page` `pagesize` | 会员分析结果接口 | 需要扫枚举 | 结果快照 |
-| 会员消费排行 | `YisEposReport/SelVipSaleRank` | `POST` | `token` | `bdate` `edate` `page` `pagesize` | 排行视图接口 | 需要翻页 | 结果快照 |
+| 会员总和分析 | `YisEposReport/SelVipAnalysisReport` | `POST` | `token` | `salebdate` `saleedate` `birthbdate` `birthedate` `salemoney1` `salemoney2` `tag` `type` `page` `pagesize` | 会员分析结果快照接口，已完成 HTTP 回证；`page=0` 当前稳定触发全量模式，`type` 已测值当前仍是同一数据集，`tag` 会切结果子集 | 结果快照 | 单请求快照 |
+| 会员消费排行 | `YisEposReport/SelVipSaleRank` | `POST` | `token` | `bdate` `edate` `page` `pagesize` | 会员排行结果快照接口，已完成 HTTP 回证；`page=0` 当前稳定触发全量模式，可按单请求 snapshot capture 留痕 | 结果快照 | 单请求快照 |
 | 会员中心 | `YisEposVipManage/SelVipInfoList` | `POST` | `token` | `condition` `searchval` `VolumeNumber` | 当前最像会员主数据查询接口，已完成 HTTP 回证 | 大概率全量 | 单请求 |
-| 会员维护 | `待识别` | `页面基线` | `浏览器研究` | `待补页面查询条件` | 当前更像会员主数据维护页，已完成页面基线 | 主接口待识别 | 单请求 |
+| 会员维护 | `YisEposVipReturnVisit/SelVipReturnVisitList` | `POST` | `token` | `search` `bdate` `edate` `brdate` `erdate` `type` `page` `pagesize` | 当前真实主接口已识别并完成 HTTP 回证；页面与 HTTP 当前均表现为稳定空集，可先按当前账号空集主数据 admit 到 `capture`，后续再观察是否出现非空集合 | 单请求 | 单请求 |
 | VIP卡折扣管理 | `待识别` | `页面基线` | `浏览器研究` | `默认加载` | 配置页，默认不作为事实主源 | 配置页面 | 暂不采纳 |
 
 ---
@@ -30,6 +30,8 @@
 
 - `会员总和分析`、`会员消费排行` 强依赖销售时间窗口
 - `会员中心` 当前样本更像状态型查询，不依赖时间窗口
+- `会员总和分析` 当前 `page=0` 会返回全量分析结果，`page=1,pagesize=20` 才会退化成分页子集
+- `会员消费排行` 当前 `page=0` 会返回全量排行结果，`page=1,pagesize=20` 才会退化成分页子集
 
 这意味着：
 
@@ -71,6 +73,14 @@
 - `会员中心` 更偏实体主数据
 - `会员总和分析` 更偏结果视图
 - `会员消费排行` 更偏排行结果视图
+- `会员总和分析` 当前默认 `page=0,pagesize=0` 返回 `25` 行
+- `page=0,pagesize=20` 与 `page=1,pagesize=0` 当前仍返回同一全量集合
+- `page=1,pagesize=20` 才返回分页子集
+- `type=blank/1/2/3` 当前为同一数据集
+- `tag=1/2/3` 当前会把结果切到 `0` 行子集，说明它更像结果筛选而不是纯视图字段
+- `会员消费排行` 当前默认 `page=0,pagesize=0` 返回 `Count=1204 / Data=1204`
+- `page=0,pagesize=20` 与 `page=1,pagesize=0` 当前仍返回同一全量集合
+- `page=1,pagesize=20` 才返回分页子集
 
 当前规则：
 
@@ -104,6 +114,8 @@
 
 - 主源候选：`会员中心`
 - 快照候选：`会员总和分析`、`会员消费排行`
+- `会员总和分析` 当前已满足 snapshot capture 条件，按 `page=0` 单请求留痕
+- `会员消费排行` 当前已满足 snapshot capture 条件，按 `page=0` 单请求留痕
 
 ---
 

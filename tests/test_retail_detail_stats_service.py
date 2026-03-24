@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.retail_detail_stats_service import (
+from app.services.research.retail_detail_stats import (
     RETAIL_DETAIL_CANONICAL_ENDPOINT,
     build_sales_reconciliation_report,
     fetch_retail_detail_pages,

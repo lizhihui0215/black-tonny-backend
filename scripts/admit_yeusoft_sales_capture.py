@@ -11,8 +11,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.db.engine import init_databases
-from app.services.batch_service import create_capture_batch, update_capture_batch
-from app.services.sales_capture_admission_service import persist_sales_capture_admission_bundle
+from app.services.capture.batch_lifecycle import create_capture_batch, update_capture_batch
+from app.services.capture.admissions import persist_sales_capture_admission_bundle
 from scripts.analyze_yeusoft_sales_evidence_chain import DEFAULT_SALE_REPORT_PAYLOAD, SALES_REPORT_URL
 from scripts.fetch_yeusoft_report_payloads import (
     README_PATH,
@@ -115,7 +115,7 @@ def main() -> int:
         )
         update_capture_batch(capture_batch_id, batch_status="captured", pulled_at=now_local())
     else:
-        from app.services.sales_capture_admission_service import build_sales_capture_admission_bundle
+        from app.services.capture.admissions import build_sales_capture_admission_bundle
 
         bundle = build_sales_capture_admission_bundle(
             document_payload=document_payload,

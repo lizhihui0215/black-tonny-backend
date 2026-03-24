@@ -18,8 +18,8 @@
 | 店铺零售清单 | `FXDIYReport/GetDIYReportData` | `POST` | `token` | `menuid` `gridid` `parameter.WareClause` `Depart` `BeginDate` `EndDate` `Operater` `Tiem` | DIY 明细表，强依赖菜单配置 | 需要扫枚举 | 暂不采纳 |
 | 销售清单 | `FXDIYReport/GetDIYReportData` | `POST` | `token` | `menuid` `gridid` `parameter.BeginDate` `EndDate` `Depart` `Operater` `Tiem` `WareClause` | 当前最接近销售明细源，且字段最丰富 | 需要扫枚举 | 单请求 |
 | 商品资料 | `YisEposWareList/SelWareList` | `POST` | `token` | `spenum` `warecause` `page` `pagesize` | 当前更像商品主数据页，已确认 `page` 为顺序翻页、`spenum` 支持精确收敛，主接口为 `SelWareList`；`warecause` 语义仍待确认 | 需要翻页 | 自动翻页 |
-| 客户资料 | `YisEposDeptClientSet/SelDeptList` | `POST` | `token` | `deptname` `page` `pagesize` | 当前更像客户主数据页，已确认主接口为 `SelDeptList`；当前账号 baseline 为空数据集 | 需要翻页 | 自动翻页 |
-| 商品销售情况 | `YisEposReport/SelSaleReportData` | `POST` | `token` | `bdate` `edate` `warecause` `spenum` | 更像商品维度聚合结果 | 只能当结果快照 | 结果快照 |
+| 客户资料 | `YisEposDeptClientSet/SelDeptList` | `POST` | `token` | `deptname` `page` `pagesize` | 当前更像客户主数据页，已确认主接口为 `SelDeptList`；页面与 HTTP 当前均表现为稳定空集，可先按当前账号空集主数据 admit 到 `capture`，后续再观察是否出现非空集合 | 单请求 | 单请求 |
+| 商品销售情况 | `YisEposReport/SelSaleReportData` | `POST` | `token` | `bdate` `edate` `warecause` `spenum` | 已确认是稳定的商品维度聚合结果快照，默认时间窗单请求返回行数当前已匹配服务端声明总数 | 结果快照 | 单请求快照 |
 | 门店销售月报 | `JyApi/DeptMonthSalesReport/DeptMonthSalesReport` | `POST` | `Authorization` | `Type` `BeginDate` `EndDate` `YBeginDate` `YEndDate` `MBeginDate` `MEndDate` `PageIndex` `PageSize` | 月报结果接口，不宜直接当明细源 | 需要翻页 | 结果快照 |
 
 ---
@@ -393,7 +393,9 @@
 
 ### 5.3 `商品销售情况`
 
-当前更偏结果快照接口，后续需要单独核实是否包含毛利/成本相关字段。
+当前更偏结果快照接口，已完成单请求 HTTP 回证，当前账号下默认时间窗单请求返回行数已匹配服务端声明总数。
+
+仍需后续单独核实是否包含毛利/成本相关字段。
 
 ---
 

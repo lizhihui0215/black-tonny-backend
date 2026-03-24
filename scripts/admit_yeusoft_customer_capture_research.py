@@ -11,13 +11,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.db.engine import init_databases
-from app.services.api_maturity_board_service import build_api_maturity_board
-from app.services.batch_service import create_capture_batch, update_capture_batch
-from app.services.customer_capture_admission_service import (
+from app.services.capture.batch_lifecycle import create_capture_batch, update_capture_batch
+from app.services.capture.admissions import (
     build_customer_capture_research_bundle,
     persist_customer_capture_research_bundle,
 )
 from app.services.erp_research_service import analyze_response_payload
+from app.services.research.maturity_board import build_api_maturity_board
 from scripts.fetch_yeusoft_report_payloads import (
     README_PATH,
     bootstrap_capture_batch,

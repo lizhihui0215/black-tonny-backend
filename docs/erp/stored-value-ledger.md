@@ -34,10 +34,26 @@
 - `EndDate`
 - `Search`
 
+当前已确认：
+
+- `Search=""` 会返回当前主集合
+- `Search` 对卡号类值可以显著收窄集合
+- `BeginDate/EndDate` 会显著收窄集合
+- `BeginDate/EndDate` 当前更像半开区间 `[BeginDate, EndDate)`，用季度半开分片后并集可以与 baseline 对齐
+- `储值卡汇总` 当前更像单请求卡级快照，`page/pagesize` 对已测值不改变结果集
+- `储值按店汇总` 当前更像单请求门店级快照，`page/pagesize` 对已测值不改变结果集
+
 当前还不能证明：
 
-- `Search=""` 是否等于当前可见全部卡
+- `Search` 对单据号或姓名的搜索语义
 - 不同 `menuid/gridid` 是否只是视图差异，还是彻底不同数据集
+
+当前最新判断：
+
+- `储值卡明细` 已具备按默认空 `Search` 单请求进入 `capture` 的条件
+- `Search` 当前只建议作为卡号类过滤器使用，不建议把 `HappenNo / VipName` 当成稳定搜索键
+- `储值卡汇总` 已具备按默认空 `Search` 单请求进入 `snapshot capture` 的条件
+- `储值按店汇总` 已具备按默认时间窗单请求进入 `snapshot capture` 的条件
 
 ---
 
@@ -82,4 +98,5 @@
 
 1. `储值卡明细.Search` 的搜索语义
 2. `储值卡明细` 是否存在隐藏分页或分页上限
-3. `FXDIYReport` 在储值域是否还存在其他 `menuid/gridid` 变体
+3. `Search` 是否只对 `VipCardId` 生效，还是还能匹配 `HappenNo` / `VipName`
+4. `FXDIYReport` 在储值域是否还存在其他 `menuid/gridid` 变体

@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.services.capture_route_registry_service import (  # noqa: E402
+from app.services.capture.route_registry import (  # noqa: E402
     build_capture_route_registry,
     render_capture_route_registry_markdown,
 )

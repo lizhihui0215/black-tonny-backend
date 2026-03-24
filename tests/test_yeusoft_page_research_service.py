@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.services.yeusoft_page_research_service import (
+from app.services.research.page_research import (
+    build_page_scope_action_texts,
+    build_page_scope_texts,
     build_menu_lookup,
     build_menu_coverage_registry_entries,
     build_page_manifest_summary,
@@ -60,6 +62,36 @@ curl 'https://example.com/eposapi/YisEposReport/SelDeptStockWaitList' --data-raw
     assert inventory_variant.group_name == "库存报表"
     assert inventory_variant.variant_label == "按中分类"
     assert inventory_variant.target_menu_path == ("报表管理", "库存报表", "库存综合分析")
+
+
+def test_build_page_research_registry_assigns_custom_steps_for_receipt_and_stocktaking(tmp_path: Path):
+    report_doc = tmp_path / "report_api_samples.md"
+    report_doc.write_text("", "utf-8")
+    api_images_dir = tmp_path / "images"
+    api_images_dir.mkdir()
+    (api_images_dir / "收货确认-1.png").write_bytes(b"fake")
+    (api_images_dir / "门店盘点单-1.png").write_bytes(b"fake")
+
+    registry = build_page_research_registry(report_doc, api_images_dir)
+
+    receipt_entry = next(item for item in registry if item.title == "收货确认")
+    stocktaking_entry = next(item for item in registry if item.title == "门店盘点单")
+
+    receipt_steps = [(step.key, step.kind, step.target_text) for step in receipt_entry.recipe.steps]
+    stocktaking_steps = [(step.key, step.kind, step.target_text) for step in stocktaking_entry.recipe.steps]
+
+    assert ("click_receipt_confirm", "click_text", "单据确认") in receipt_steps
+    assert ("click_receipt_logistics", "click_text", "物流信息") in receipt_steps
+    assert ("select_receipt_row", "select_first_grid_row", None) in receipt_steps
+    assert next(step.wait_ms for step in receipt_entry.recipe.steps if step.key == "query") == 5000
+
+    assert ("click_stocktaking_detail", "click_text", "查看明细") in stocktaking_steps
+    assert ("click_stocktaking_barcode_record", "click_text", "条码记录") in stocktaking_steps
+    assert ("click_stocktaking_profit_loss", "click_text", "统计损溢") in stocktaking_steps
+    assert ("click_stocktaking_new", "click_text", "新增") in stocktaking_steps
+    assert next(step.wait_ms for step in stocktaking_entry.recipe.steps if step.key == "query") == 5000
+    assert receipt_entry.as_dict()["scope_texts"] == ["收货确认"]
+    assert stocktaking_entry.as_dict()["scope_texts"] == ["门店盘点单"]
 
 
 def test_build_unknown_page_registry_entries_from_menu_coverage_payload(tmp_path: Path):
@@ -228,6 +260,32 @@ def test_list_menu_items_supports_non_report_root_and_variant_alias_lookup():
     assert lookup["会员资料::会员中心"]["FuncUrl"] == "MemberCenter"
     assert lookup["报表管理::库存综合分析-按中分类"]["FuncUrl"] == "StockAnalysis"
     assert lookup["会员中心"]["FuncUrl"] == "MemberCenter"
+
+
+def test_build_page_scope_texts_deduplicates_variant_targets(tmp_path: Path):
+    report_doc = tmp_path / "report_api_samples.md"
+    report_doc.write_text("", "utf-8")
+    api_images_dir = tmp_path / "images"
+    api_images_dir.mkdir()
+    (api_images_dir / "库存综合分析-按中分类-1.png").write_bytes(b"fake")
+
+    registry = build_page_research_registry(report_doc, api_images_dir)
+    entry = next(item for item in registry if item.title == "库存综合分析-按中分类")
+
+    assert build_page_scope_texts(entry) == ("库存综合分析-按中分类", "库存综合分析")
+
+
+def test_build_page_scope_action_texts_collects_recipe_targets(tmp_path: Path):
+    report_doc = tmp_path / "report_api_samples.md"
+    report_doc.write_text("", "utf-8")
+    api_images_dir = tmp_path / "images"
+    api_images_dir.mkdir()
+    (api_images_dir / "收货确认-1.png").write_bytes(b"fake")
+
+    registry = build_page_research_registry(report_doc, api_images_dir)
+    entry = next(item for item in registry if item.title == "收货确认")
+
+    assert build_page_scope_action_texts(entry) == ("单据确认", "物流信息")
 
 
 def test_diff_payload_paths_reports_nested_changes():
